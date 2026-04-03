@@ -40,26 +40,6 @@ function generateUserId() {
 }
 
 export default function Home() {
-  // ICE Watchdog: Restart if stuck in checking for too long
-  useEffect(() => {
-    if (status === 'connected' && debug.ice === 'checking') {
-      const timer = setTimeout(() => {
-        console.log('ICE Stuck! Attempting restart...');
-        if (pcRef.current) {
-          pcRef.current.createOffer({ iceRestart: true }).then(offer => {
-            pcRef.current.setLocalDescription(offer);
-            fetch('/api/signal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'offer', data: offer, from: userId }),
-            });
-          });
-        }
-      }, 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [status, debug.ice, userId]);
-
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
       let id = sessionStorage.getItem('userId');
@@ -98,6 +78,26 @@ export default function Home() {
   const roomIdRef = useRef(null);
   const chatEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  // ICE Watchdog: Restart if stuck in checking for too long
+  useEffect(() => {
+    if (status === 'connected' && debug.ice === 'checking') {
+      const timer = setTimeout(() => {
+        console.log('ICE Stuck! Attempting restart...');
+        if (pcRef.current) {
+          pcRef.current.createOffer({ iceRestart: true }).then(offer => {
+            pcRef.current.setLocalDescription(offer);
+            fetch('/api/signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'offer', data: offer, from: userId }),
+            });
+          });
+        }
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [status, debug.ice, userId]);
 
   const handlePartnerLeft = useCallback(() => {
     updateStatus('disconnected');
