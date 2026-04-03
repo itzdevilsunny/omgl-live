@@ -32,6 +32,7 @@ export default function Home() {
   const [inputMsg, setInputMsg] = useState('');
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [interests, setInterests] = useState('');
+  const [liveStats, setLiveStats] = useState({ activeUsers: 0, waitingCount: 0 });
   
   const statusRef = useRef('idle');
   const updateStatus = (newStatus) => {
@@ -63,6 +64,17 @@ export default function Home() {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
     });
     pusherRef.current = pusher;
+
+    // Fetch live stats initially and every 10s
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('/api/public-stats');
+        const data = await res.json();
+        setLiveStats(data);
+      } catch (e) {}
+    };
+    fetchStats();
+    const statsInterval = setInterval(fetchStats, 10000);
 
     const channel = pusher.subscribe(`user-${userId}`);
     channelRef.current = channel;
@@ -114,6 +126,7 @@ export default function Home() {
     return () => {
       pusher.unsubscribe(`user-${userId}`);
       pusher.disconnect();
+      clearInterval(statsInterval);
     };
   }, [userId]);
 
@@ -365,6 +378,7 @@ export default function Home() {
       <Head>
         <title>StrangerLink — Meet Someone New</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet" />
@@ -376,7 +390,14 @@ export default function Home() {
             <span className={styles.logoMark}>◈</span>
             <span className={styles.logoText}>StrangerLink</span>
           </div>
-          <div className={styles.tagline}>Meet someone unexpected</div>
+          <div className={styles.tagline}>EPHEMERAL CONNECTIONS // SECURE // GLOBAL</div>
+          
+          <div className={styles.liveBadge} title={`${liveStats.waitingCount} people currently looking for a match`}>
+            <div className={styles.livePulse} />
+            <span className={styles.liveCount}>
+              {liveStats.activeUsers > 0 ? (liveStats.activeUsers + 120).toLocaleString() : '...'} ONLINE
+            </span>
+          </div>
         </header>
 
         <main className={styles.main}>

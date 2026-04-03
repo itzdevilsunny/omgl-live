@@ -58,6 +58,50 @@
   letter-spacing: 0.1em;
 }
 
+.liveBadge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(106, 255, 212, 0.05);
+  border: 1px solid rgba(106, 255, 212, 0.15);
+  padding: 6px 12px;
+  border-radius: 100px;
+  backdrop-filter: blur(8px);
+}
+
+.livePulse {
+  width: 8px;
+  height: 8px;
+  background: var(--accent3);
+  border-radius: 50%;
+  position: relative;
+}
+
+.livePulse::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: var(--accent3);
+  opacity: 0.4;
+  animation: livePing 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes livePing {
+  75%, 100% {
+    transform: scale(3.5);
+    opacity: 0;
+  }
+}
+
+.liveCount {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent3);
+  letter-spacing: 0.05em;
+}
+
 /* ===== MAIN ===== */
 .main {
   flex: 1;
