@@ -40,13 +40,19 @@ function generateUserId() {
 }
 
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
       let id = sessionStorage.getItem('userId');
       if (!id) { id = generateUserId(); sessionStorage.setItem('userId', id); }
       return id;
     }
-    return generateUserId();
+    return 'ssr';
   });
 
   const [status, setStatus] = useState('idle'); // idle | requesting | waiting | connected | disconnected
@@ -504,6 +510,25 @@ export default function Home() {
       });
     }, 1500);
   };
+
+  if (!mounted) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh', 
+        background: '#0a0a0c', 
+        color: '#fff', 
+        fontFamily: 'Syne, sans-serif' 
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className={styles.pulser} style={{ width: '40px', height: '40px', margin: '0 auto 20px' }} />
+          <p style={{ opacity: 0.6, fontSize: '14px', letterSpacing: '1px' }}>INITIALIZING SECURE LINK...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
