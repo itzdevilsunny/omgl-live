@@ -1,10 +1,6 @@
 import { Redis } from '@upstash/redis';
 import Pusher from 'pusher';
 
-export const config = {
-  runtime: 'edge',
-};
-
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
@@ -18,15 +14,17 @@ const pusher = new Pusher({
   useTLS: true,
 });
 
-export default async function handler(req) {
-  const adminSecret = req.headers.get('x-admin-secret');
+export default async function handler(req, res) {
+  const adminSecret = req.headers['x-admin-secret'];
   if (adminSecret !== process.env.ADMIN_SECRET) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  if (req.method !== 'POST') return res.status(405).send('Method not allowed');
+
   try {
-    const { targetUserId } = await req.json();
-    if (!targetUserId) return new Response('targetUserId required', { status: 400 });
+    const { targetUserId } = req.body;
+    if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
 
     // 1. Remove from all Redis sets
     await redis.srem('waiting_users', targetUserId);
@@ -35,11 +33,9 @@ export default async function handler(req) {
     // 2. Trigger special "kicked" event to the user
     await pusher.trigger(`user-${targetUserId}`, 'kicked', { message: 'You have been disconnected by the administrator.' });
 
-    return new Response(JSON.stringify({ ok: true, message: `User ${targetUserId} purged.` }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(200).json({ ok: true, message: `User ${targetUserId} purged.` });
   } catch (error) {
-    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+    console.error('Admin Kick Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }

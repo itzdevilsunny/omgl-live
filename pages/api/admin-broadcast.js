@@ -1,9 +1,5 @@
 import Pusher from 'pusher';
 
-export const config = {
-  runtime: 'edge',
-};
-
 const pusher = new Pusher({
   appId: process.env.PUSHER_APP_ID,
   key: process.env.NEXT_PUBLIC_PUSHER_KEY,
@@ -12,24 +8,24 @@ const pusher = new Pusher({
   useTLS: true,
 });
 
-export default async function handler(req) {
-  const adminSecret = req.headers.get('x-admin-secret');
+export default async function handler(req, res) {
+  const adminSecret = req.headers['x-admin-secret'];
   if (adminSecret !== process.env.ADMIN_SECRET) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  if (req.method !== 'POST') return res.status(405).send('Method not allowed');
+
   try {
-    const { message } = await req.json();
-    if (!message) return new Response('message required', { status: 400 });
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required' });
 
     // Trigger a global announcement event on a public channel
     await pusher.trigger('global-announcements', 'message', { text: message });
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(200).json({ ok: true });
   } catch (error) {
-    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+    console.error('Admin Broadcast Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }

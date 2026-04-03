@@ -1,10 +1,6 @@
 import { Redis } from '@upstash/redis';
 import Pusher from 'pusher';
 
-export const config = {
-  runtime: 'edge',
-};
-
 const pusher = new Pusher({
   appId: process.env.PUSHER_APP_ID,
   key: process.env.NEXT_PUBLIC_PUSHER_KEY,
@@ -18,12 +14,12 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-export default async function handler(req) {
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { userId, interests } = await req.json();
-    if (!userId) return new Response('userId required', { status: 400 });
+    const { userId, interests } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
 
     // 1. Try to match by interests (if any)
     if (interests && Array.isArray(interests) && interests.length > 0) {
@@ -42,10 +38,7 @@ export default async function handler(req) {
           }
           await redis.srem('waiting_users', userId);
 
-          return new Response(JSON.stringify({ waiting: false, partnerId }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
+          return res.status(200).json({ waiting: false, partnerId });
         }
       }
 
@@ -75,10 +68,7 @@ export default async function handler(req) {
         }
       }
 
-      return new Response(JSON.stringify({ waiting: false, partnerId }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return res.status(200).json({ waiting: false, partnerId });
     }
 
     // Still waiting
@@ -87,15 +77,9 @@ export default async function handler(req) {
     // Update global activity tracker
     await redis.zadd('global_activity', { score: Date.now(), member: userId });
     
-    return new Response(JSON.stringify({ waiting: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(200).json({ waiting: true });
   } catch (error) {
     console.error('Join API Error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }

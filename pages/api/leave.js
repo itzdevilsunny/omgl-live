@@ -1,10 +1,6 @@
 import { Redis } from '@upstash/redis';
 import Pusher from 'pusher';
 
-export const config = {
-  runtime: 'edge',
-};
-
 const pusher = new Pusher({
   appId: process.env.PUSHER_APP_ID,
   key: process.env.NEXT_PUBLIC_PUSHER_KEY,
@@ -18,11 +14,11 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-export default async function handler(req) {
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).send('Method not allowed');
 
   try {
-    const { partnerId, userId, interests } = await req.json();
+    const { partnerId, userId, interests } = req.body;
 
     // If userId provided, remove from waiting queue and activity tracker
     if (userId) {
@@ -42,15 +38,9 @@ export default async function handler(req) {
       await pusher.trigger(`user-${partnerId}`, 'partner-left', {});
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(200).json({ ok: true });
   } catch (error) {
     console.error('Leave API Error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }
