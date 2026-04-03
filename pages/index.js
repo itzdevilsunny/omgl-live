@@ -246,51 +246,37 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Init Pusher
-  useEffect(() => {
+  // LAZY CONNECT: Only connect to Pusher when "Start" is clicked
+  const connectSignaling = useCallback(() => {
+    if (pusherRef.current) return pusherRef.current;
+    
+    console.log('Connecting to Signaling...');
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
     });
     pusherRef.current = pusher;
-
-    // Fetch live stats initially and every 10s
-    const fetchStats = async () => {
-      try {
-        const res = await fetch('/api/public-stats');
-        const data = await res.json();
-        setLiveStats(data);
-      } catch (e) {}
-    };
-    fetchStats();
-    const statsInterval = setInterval(fetchStats, 10000);
-
+    
     const channel = pusher.subscribe(`user-${userId}`);
     channelRef.current = channel;
 
     channel.bind('matched', async ({ roomId, isInitiator }) => {
       roomIdRef.current = roomId;
       isInitiatorRef.current = isInitiator;
-      // Extract partner ID from roomId (we don't know yet, signaling will tell us)
       updateStatus('connected');
       if (pollingRef.current) clearInterval(pollingRef.current);
       await startCall(isInitiator);
     });
 
     channel.bind('signal', async ({ type, data, from }) => {
-      // Security/Reliability: If we get a signal from someone else, but we don't have a partner, 
-      // treat them as our partner. This solves "Peer Discovery" issues.
       if (!partnerIdRef.current && from) {
         partnerIdRef.current = from;
       }
-
-      // Ignore signals not from our partner (unless we are just starting)
       if (from && partnerIdRef.current && from !== partnerIdRef.current) return;
 
       if (type === 'offer') await handleOffer(data);
       else if (type === 'answer') await handleAnswer(data);
       else if (type === 'ice') await handleIce(data);
       else if (type === 'chat') {
-        // Only show messages if we are actually connected
         if (statusRef.current !== 'connected') return;
         setMessages(m => [...m, { from: 'them', text: data.text }]);
         setPartnerTyping(false);
@@ -311,19 +297,33 @@ export default function Home() {
       window.location.reload();
     });
 
-    return () => {
-      pusher.unsubscribe(`user-${userId}`);
-      pusher.disconnect();
-      clearInterval(statsInterval);
-    };
+    return pusher;
+  }, [userId, handleOffer, handleAnswer, handleIce, handlePartnerLeft]);
+
+  const disconnectSignaling = useCallback(() => {
+    if (pusherRef.current) {
+      console.log('Disconnecting Signaling...');
+      pusherRef.current.unsubscribe(`user-${userId}`);
+      if (roomIdRef.current) pusherRef.current.unsubscribe(`room-${roomIdRef.current}`);
+      pusherRef.current.disconnect();
+      pusherRef.current = null;
+      channelRef.current = null;
+    }
   }, [userId]);
 
+  // Handle window close
+  useEffect(() => {
+    const handleClose = () => {
+      if (statusRef.current === 'connected') stopChat();
+      disconnectSignaling();
+    };
+    window.addEventListener('beforeunload', handleClose);
+    return () => window.removeEventListener('beforeunload', handleClose);
+  }, [disconnectSignaling]);
 
   const startCall = async (isInitiator) => {
     await getLocalStream();
 
-    // We need partner ID — use a shared room channel approach via Pusher
-    // Since we don't have partner ID yet, we'll use the room channel
     const roomChannel = pusherRef.current.subscribe(`room-${roomIdRef.current}`);
     
     roomChannel.bind('peer-hello', async ({ from }) => {
@@ -333,7 +333,6 @@ export default function Home() {
       const pc = createPeerConnection(from);
 
       if (isInitiator) {
-        // Send offer
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         await fetch('/api/signal', {
@@ -344,18 +343,6 @@ export default function Home() {
       }
     });
 
-    // Announce presence in room
-    await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        targetUserId: `room-${roomIdRef.current}`,
-        type: 'hello',
-        data: { from: userId },
-      }),
-    });
-
-    // Use a simpler approach: trigger room channel via a dedicated endpoint
     await fetch('/api/room-hello', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -365,10 +352,13 @@ export default function Home() {
 
 
   const startSearching = async () => {
+    if (status === 'requesting' || status === 'waiting') return;
+    
     updateStatus('requesting');
     setMessages([]);
     try {
       await getLocalStream();
+      connectSignaling();
     } catch (e) {
       alert('Camera/microphone access is required.');
       updateStatus('idle');
@@ -390,13 +380,11 @@ export default function Home() {
       });
       const data = await res.json();
       if (!data.waiting) {
-        // We were matched instantly as non-initiator
         if (pollingRef.current) clearInterval(pollingRef.current);
       }
     };
 
     doJoin();
-      // Keep re-joining queue every 2s if still waiting (faster for Edge)
     pollingRef.current = setInterval(() => {
       if (statusRef.current !== 'waiting') {
         clearInterval(pollingRef.current);
@@ -432,7 +420,6 @@ export default function Home() {
         body: JSON.stringify({ partnerId: partnerIdRef.current, userId }),
       });
     } else {
-      // Even if no partner, we might be in the queue
       await fetch('/api/leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -446,8 +433,12 @@ export default function Home() {
     localStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    
+    disconnectSignaling();
+    
     updateStatus('idle');
     setMessages([]);
+    setDebug({ pc: 'idle', ice: 'idle', tracks: 0 });
   };
 
   const toggleMute = () => {
