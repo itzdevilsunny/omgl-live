@@ -10,6 +10,8 @@ const ICE_SERVERS = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com' },
     { urls: 'stun:stun.ekiga.net' },
     { urls: 'stun:stun.ideasip.com' },
     { urls: 'stun:stun.schlund.de' },
@@ -38,6 +40,26 @@ function generateUserId() {
 }
 
 export default function Home() {
+  // ICE Watchdog: Restart if stuck in checking for too long
+  useEffect(() => {
+    if (status === 'connected' && debug.ice === 'checking') {
+      const timer = setTimeout(() => {
+        console.log('ICE Stuck! Attempting restart...');
+        if (pcRef.current) {
+          pcRef.current.createOffer({ iceRestart: true }).then(offer => {
+            pcRef.current.setLocalDescription(offer);
+            fetch('/api/signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'offer', data: offer, from: userId }),
+            });
+          });
+        }
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [status, debug.ice, userId]);
+
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
       let id = sessionStorage.getItem('userId');
@@ -55,7 +77,7 @@ export default function Home() {
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [interests, setInterests] = useState('');
   const [liveStats, setLiveStats] = useState({ activeUsers: 0, waitingCount: 0 });
-  const [debug, setDebug] = useState({ pc: 'idle', ice: 'idle', tracks: 0 });
+  const [debug, setDebug] = useState({ pc: 'idle', ice: 'idle', gather: 'idle', tracks: 0 });
   
   const statusRef = useRef('idle');
   const updateStatus = (newStatus) => {
@@ -150,6 +172,11 @@ export default function Home() {
       }
     };
 
+    pc.onicegatheringstatechange = () => {
+      console.log('Gather:', pc.iceGatheringState);
+      setDebug(d => ({ ...d, gather: pc.iceGatheringState }));
+    };
+
     pc.oniceconnectionstatechange = () => {
       console.log('ICE:', pc.iceConnectionState);
       setDebug(d => ({ ...d, ice: pc.iceConnectionState }));
@@ -177,23 +204,48 @@ export default function Home() {
     return pc;
   }, [userId, handlePartnerLeft]);
 
+  const handleOffer = useCallback(async (offer, fromUserId) => {
+    console.log('Handling Offer from:', fromUserId);
+    const pc = createPeerConnection(fromUserId);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    await flushIceCandidates();
+    
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    
+    await fetch('/api/signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        targetUserId: fromUserId || partnerIdRef.current, 
+        type: 'answer', 
+        data: answer, 
+        from: userId 
+      }),
+    });
+  }, [userId, createPeerConnection, flushIceCandidates]);
+
+  const handleAnswer = useCallback(async (answer) => {
+    console.log('Handling Answer');
+    const pc = pcRef.current;
+    if (pc) {
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushIceCandidates();
+    }
+  }, [flushIceCandidates]);
 
   const handleIce = useCallback(async (candidate) => {
     try {
       if (!candidate) return;
       const pc = pcRef.current;
       
-      // If PC or RemoteDescription isn't ready, BUFFER the candidate
-      // This is CRITICAL if signaling arrives during the camera grant phase
       if (!pc || !pc.remoteDescription) {
-        console.log('Buffering ICE candidate (PC or RemoteDesc not ready)');
+        console.log('Buffering ICE candidate');
         pendingIceRef.current.push(candidate);
       } else {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       }
-    } catch (e) {
-      console.warn('ICE Candidate Error:', e);
-    }
+    } catch (e) { /* ignore */ }
   }, []);
 
   const flushIceCandidates = useCallback(async () => {
@@ -212,34 +264,6 @@ export default function Home() {
       }
     }
   }, []);
-
-  const handleOffer = useCallback(async (offer) => {
-    if (!pcRef.current) {
-      await getLocalStream();
-      createPeerConnection(partnerIdRef.current);
-    }
-    const pc = pcRef.current;
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    await flushIceCandidates();
-    
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'answer', data: answer, from: userId }),
-    });
-  }, [userId, createPeerConnection, flushIceCandidates]);
-
-  const handleAnswer = useCallback(async (answer) => {
-    if (pcRef.current) {
-      try {
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-        await flushIceCandidates();
-      } catch (e) { console.warn('Answer Error:', e); }
-    }
-  }, [flushIceCandidates]);
-
 
   // Scroll chat to bottom
   useEffect(() => {
@@ -271,9 +295,9 @@ export default function Home() {
       if (!partnerIdRef.current && from) {
         partnerIdRef.current = from;
       }
-      if (from && partnerIdRef.current && from !== partnerIdRef.current) return;
-
-      if (type === 'offer') await handleOffer(data);
+      
+      console.log('Signal:', type, 'from:', from);
+      if (type === 'offer') await handleOffer(data, from);
       else if (type === 'answer') await handleAnswer(data);
       else if (type === 'ice') await handleIce(data);
       else if (type === 'chat') {
@@ -526,7 +550,7 @@ export default function Home() {
               {status === 'connected' && (
                 <>
                   <div style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(0,0,0,0.5)', padding: '2px 6px', fontSize: '10px', color: '#fff', borderRadius: '4px', zIndex: 10 }}>
-                    PC:{debug.pc} | ICE:{debug.ice} | T:{debug.tracks}
+                    PC:{debug.pc} | ICE:{debug.ice} | G:{debug.gather} | T:{debug.tracks}
                   </div>
                   {debug.tracks > 0 && !remoteVideoRef.current?.srcObject?.active && (
                     <button 
