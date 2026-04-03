@@ -44,7 +44,7 @@ export default function Home() {
   const remoteVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const pollingRef = useRef(null);
-  const pendingIceRef = useRef([]);
+  const pendingIceRef = useRef([]); // SINGLE declaration
   const pcRef = useRef(null);
   const pusherRef = useRef(null);
   const channelRef = useRef(null);
@@ -63,6 +63,52 @@ export default function Home() {
     partnerIdRef.current = null;
     pendingIceRef.current = [];
   }, []);
+
+  const getLocalStream = useCallback(async () => {
+    if (localStreamRef.current) return localStreamRef.current;
+    if (typeof window === 'undefined') return null;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      return stream;
+    } catch (e) {
+      console.error('Media error:', e);
+      return null;
+    }
+  }, []);
+
+  const createPeerConnection = useCallback((partnerId) => {
+    if (typeof window === 'undefined') return null;
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    pcRef.current = pc;
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate && partnerId) {
+        fetch('/api/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetUserId: partnerId, type: 'ice', data: e.candidate, from: userId }),
+        });
+      }
+    };
+
+    pc.ontrack = (e) => {
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        handlePartnerLeft();
+      }
+    };
+
+    const stream = localStreamRef.current;
+    if (stream) stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    return pc;
+  }, [userId, handlePartnerLeft]);
+
 
   const flushIceCandidates = useCallback(async () => {
     const pc = pcRef.current;
@@ -196,43 +242,6 @@ export default function Home() {
     };
   }, [userId]);
 
-  const getLocalStream = async () => {
-    if (localStreamRef.current) return localStreamRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    localStreamRef.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    return stream;
-  };
-
-  const createPeerConnection = useCallback((partnerId) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-    pcRef.current = pc;
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate && partnerId) {
-        fetch('/api/signal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetUserId: partnerId, type: 'ice', data: e.candidate, from: userId }),
-        });
-      }
-    };
-
-    pc.ontrack = (e) => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        handlePartnerLeft();
-      }
-    };
-
-    const stream = localStreamRef.current;
-    if (stream) stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-    return pc;
-  }, []);
 
   const startCall = async (isInitiator) => {
     await getLocalStream();
