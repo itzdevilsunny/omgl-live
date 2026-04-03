@@ -8,6 +8,24 @@ const ICE_SERVERS = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    // OpenRelay Public TURN (Shared/Free) - replace with private for production
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
 };
 
@@ -110,19 +128,39 @@ export default function Home() {
   }, [userId, handlePartnerLeft]);
 
 
+  const handleIce = useCallback(async (candidate) => {
+    try {
+      if (!candidate) return;
+      const pc = pcRef.current;
+      
+      // If PC or RemoteDescription isn't ready, BUFFER the candidate
+      // This is CRITICAL if signaling arrives during the camera grant phase
+      if (!pc || !pc.remoteDescription) {
+        console.log('Buffering ICE candidate (PC or RemoteDesc not ready)');
+        pendingIceRef.current.push(candidate);
+      } else {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    } catch (e) {
+      console.warn('ICE Candidate Error:', e);
+    }
+  }, []);
+
   const flushIceCandidates = useCallback(async () => {
     const pc = pcRef.current;
     if (!pc || !pc.remoteDescription || pendingIceRef.current.length === 0) return;
     
     console.log(`Flushing ${pendingIceRef.current.length} buffered ICE candidates`);
-    for (const candidate of pendingIceRef.current) {
+    const candidates = [...pendingIceRef.current];
+    pendingIceRef.current = []; // Clear immediately to avoid duplicates
+    
+    for (const candidate of candidates) {
       try { 
         if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
       } catch (e) {
         console.warn('Flush ICE Error:', e);
       }
     }
-    pendingIceRef.current = [];
   }, []);
 
   const handleOffer = useCallback(async (offer) => {
@@ -152,18 +190,6 @@ export default function Home() {
     }
   }, [flushIceCandidates]);
 
-  const handleIce = useCallback(async (candidate) => {
-    try {
-      const pc = pcRef.current;
-      if (!pc || !candidate) return;
-
-      if (!pc.remoteDescription) {
-        pendingIceRef.current.push(candidate);
-      } else {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      }
-    } catch (e) { /* ignore */ }
-  }, []);
 
   // Scroll chat to bottom
   useEffect(() => {
@@ -445,7 +471,17 @@ export default function Home() {
           {/* Video Area */}
           <div className={styles.videoArea}>
             <div className={`${styles.videoSlot} ${styles.remote}`}>
-              <video ref={remoteVideoRef} autoPlay playsInline className={styles.video} />
+              <video 
+                ref={remoteVideoRef} 
+                autoPlay 
+                playsInline 
+                muted={true} // Start muted to bypass autoplay blocks
+                onLoadedMetadata={(e) => {
+                  e.target.muted = false; // Unmute as soon as it starts
+                  e.target.play().catch(() => {});
+                }}
+                className={styles.video} 
+              />
               {status !== 'connected' && (
                 <div className={styles.videoPlaceholder}>
                   {status === 'idle' && <div className={styles.placeholderContent}><span className={styles.placeholderIcon}>👤</span><p>Stranger</p></div>}
