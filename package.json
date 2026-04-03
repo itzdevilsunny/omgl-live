@@ -1,0 +1,19 @@
+{
+  "name": "omegle-webrtc",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.37.0",
+    "next": "^14.0.0",
+    "pusher": "^5.2.0",
+    "pusher-js": "^8.4.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}
