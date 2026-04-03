@@ -43,6 +43,8 @@ export default function Home() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const pollingRef = useRef(null);
+  const pendingIceRef = useRef([]);
   const pcRef = useRef(null);
   const pusherRef = useRef(null);
   const channelRef = useRef(null);
@@ -51,7 +53,67 @@ export default function Home() {
   const roomIdRef = useRef(null);
   const chatEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
-  const pollingRef = useRef(null);
+
+  const handlePartnerLeft = useCallback(() => {
+    updateStatus('disconnected');
+    setMessages(m => [...m, { from: 'system', text: 'Stranger has disconnected.' }]);
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    pcRef.current?.close();
+    pcRef.current = null;
+    partnerIdRef.current = null;
+    pendingIceRef.current = [];
+  }, []);
+
+  const flushIceCandidates = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc || !pc.remoteDescription || pendingIceRef.current.length === 0) return;
+    
+    console.log(`Flushing ${pendingIceRef.current.length} buffered ICE candidates`);
+    for (const candidate of pendingIceRef.current) {
+      try { await pc.addIceCandidate(candidate); } catch (e) {}
+    }
+    pendingIceRef.current = [];
+  }, []);
+
+  const handleOffer = useCallback(async (offer) => {
+    if (!pcRef.current) {
+      await getLocalStream();
+      createPeerConnection(partnerIdRef.current);
+    }
+    const pc = pcRef.current;
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    await flushIceCandidates();
+    
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await fetch('/api/signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'answer', data: answer, from: userId }),
+    });
+  }, [userId, createPeerConnection, flushIceCandidates]);
+
+  const handleAnswer = useCallback(async (answer) => {
+    if (pcRef.current) {
+      try {
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+        await flushIceCandidates();
+      } catch (e) { console.warn('Answer Error:', e); }
+    }
+  }, [flushIceCandidates]);
+
+  const handleIce = useCallback(async (candidate) => {
+    try {
+      const pc = pcRef.current;
+      if (!pc || !candidate) return;
+
+      if (!pc.remoteDescription) {
+        pendingIceRef.current.push(candidate);
+      } else {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    } catch (e) { /* ignore */ }
+  }, []);
 
   // Scroll chat to bottom
   useEffect(() => {
@@ -147,7 +209,7 @@ export default function Home() {
         fetch('/api/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetUserId: partnerId, type: 'ice', data: e.candidate }),
+          body: JSON.stringify({ targetUserId: partnerId, type: 'ice', data: e.candidate, from: userId }),
         });
       }
     };
@@ -212,40 +274,6 @@ export default function Home() {
     });
   };
 
-  const handleOffer = async (offer) => {
-    if (!pcRef.current) {
-      await getLocalStream();
-      createPeerConnection(partnerIdRef.current);
-    }
-    const pc = pcRef.current;
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'answer', data: answer, from: userId }),
-    });
-  };
-
-  const handleAnswer = async (answer) => {
-    await pcRef.current?.setRemoteDescription(new RTCSessionDescription(answer));
-  };
-
-  const handleIce = async (candidate) => {
-    try {
-      await pcRef.current?.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (e) { /* ignore */ }
-  };
-
-  const handlePartnerLeft = () => {
-    updateStatus('disconnected');
-    setMessages(m => [...m, { from: 'system', text: 'Stranger has disconnected.' }]);
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-    pcRef.current?.close();
-    pcRef.current = null;
-    partnerIdRef.current = null;
-  };
 
   const startSearching = async () => {
     updateStatus('requesting');
