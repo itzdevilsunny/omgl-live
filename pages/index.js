@@ -98,6 +98,14 @@ export default function Home() {
 
   const createPeerConnection = useCallback((partnerId) => {
     if (typeof window === 'undefined') return null;
+    
+    // IDEMPOTENCY: Don't create if already exists
+    if (pcRef.current && pcRef.current.connectionState !== 'closed') {
+      console.log('Using existing PeerConnection');
+      return pcRef.current;
+    }
+
+    console.log('Creating NEW PeerConnection for:', partnerId);
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
@@ -112,17 +120,37 @@ export default function Home() {
     };
 
     pc.ontrack = (e) => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
+      console.log('Track received!', e.streams);
+      if (remoteVideoRef.current) {
+        // Robust stream attachment
+        if (e.streams && e.streams[0]) {
+          remoteVideoRef.current.srcObject = e.streams[0];
+        } else {
+          // Fallback for browsers that don't provide streams in the event
+          if (!remoteVideoRef.current.srcObject) {
+            remoteVideoRef.current.srcObject = new MediaStream();
+          }
+          remoteVideoRef.current.srcObject.addTrack(e.track);
+        }
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE Connection State:', pc.iceConnectionState);
     };
 
     pc.onconnectionstatechange = () => {
+      console.log('PC Connection State:', pc.connectionState);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         handlePartnerLeft();
       }
     };
 
     const stream = localStreamRef.current;
-    if (stream) stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    if (stream) {
+      console.log('Adding local tracks to PC');
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    }
 
     return pc;
   }, [userId, handlePartnerLeft]);
