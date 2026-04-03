@@ -32,6 +32,12 @@ export default function Home() {
   const [inputMsg, setInputMsg] = useState('');
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [interests, setInterests] = useState('');
+  
+  const statusRef = useRef('idle');
+  const updateStatus = (newStatus) => {
+    statusRef.current = newStatus;
+    setStatus(newStatus);
+  };
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -65,21 +71,33 @@ export default function Home() {
       roomIdRef.current = roomId;
       isInitiatorRef.current = isInitiator;
       // Extract partner ID from roomId (we don't know yet, signaling will tell us)
-      setStatus('connected');
+      updateStatus('connected');
       if (pollingRef.current) clearInterval(pollingRef.current);
       await startCall(isInitiator);
     });
 
-    channel.bind('signal', async ({ type, data }) => {
+    channel.bind('signal', async ({ type, data, from }) => {
+      // Security/Reliability: If we get a signal from someone else, but we don't have a partner, 
+      // treat them as our partner. This solves "Peer Discovery" issues.
+      if (!partnerIdRef.current && from) {
+        partnerIdRef.current = from;
+      }
+
+      // Ignore signals not from our partner (unless we are just starting)
+      if (from && partnerIdRef.current && from !== partnerIdRef.current) return;
+
       if (type === 'offer') await handleOffer(data);
       else if (type === 'answer') await handleAnswer(data);
       else if (type === 'ice') await handleIce(data);
-      else if (type === 'partner-id') { partnerIdRef.current = data.id; }
       else if (type === 'chat') {
+        // Only show messages if we are actually connected
+        if (statusRef.current !== 'connected') return;
         setMessages(m => [...m, { from: 'them', text: data.text }]);
         setPartnerTyping(false);
       }
-      else if (type === 'typing') setPartnerTyping(true);
+      else if (type === 'typing') {
+        if (statusRef.current === 'connected') setPartnerTyping(true);
+      }
       else if (type === 'stop-typing') setPartnerTyping(false);
     });
 
@@ -157,7 +175,7 @@ export default function Home() {
         await fetch('/api/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetUserId: from, type: 'offer', data: offer }),
+          body: JSON.stringify({ targetUserId: from, type: 'offer', data: offer, from: userId }),
         });
       }
     });
@@ -193,7 +211,7 @@ export default function Home() {
     await fetch('/api/signal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'answer', data: answer }),
+      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'answer', data: answer, from: userId }),
     });
   };
 
@@ -208,7 +226,7 @@ export default function Home() {
   };
 
   const handlePartnerLeft = () => {
-    setStatus('disconnected');
+    updateStatus('disconnected');
     setMessages(m => [...m, { from: 'system', text: 'Stranger has disconnected.' }]);
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     pcRef.current?.close();
@@ -217,16 +235,16 @@ export default function Home() {
   };
 
   const startSearching = async () => {
-    setStatus('requesting');
+    updateStatus('requesting');
     setMessages([]);
     try {
       await getLocalStream();
     } catch (e) {
       alert('Camera/microphone access is required.');
-      setStatus('idle');
+      updateStatus('idle');
       return;
     }
-    setStatus('waiting');
+    updateStatus('waiting');
     pollForMatch();
   };
 
@@ -250,7 +268,7 @@ export default function Home() {
     doJoin();
       // Keep re-joining queue every 2s if still waiting (faster for Edge)
     pollingRef.current = setInterval(() => {
-      if (status !== 'waiting') {
+      if (statusRef.current !== 'waiting') {
         clearInterval(pollingRef.current);
         return;
       }
@@ -271,7 +289,7 @@ export default function Home() {
     partnerIdRef.current = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setMessages([]);
-    setStatus('waiting');
+    updateStatus('waiting');
     pollForMatch();
   };
 
@@ -298,7 +316,7 @@ export default function Home() {
     localStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-    setStatus('idle');
+    updateStatus('idle');
     setMessages([]);
   };
 
@@ -320,7 +338,7 @@ export default function Home() {
     await fetch('/api/signal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'chat', data: { text } }),
+      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'chat', data: { text }, from: userId }),
     });
   };
 
@@ -330,14 +348,14 @@ export default function Home() {
     await fetch('/api/signal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'typing', data: {} }),
+      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'typing', data: {}, from: userId }),
     });
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(async () => {
       await fetch('/api/signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'stop-typing', data: {} }),
+        body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'stop-typing', data: {}, from: userId }),
       });
     }, 1500);
   };
