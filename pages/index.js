@@ -70,7 +70,11 @@ export default function Home() {
     
     console.log(`Flushing ${pendingIceRef.current.length} buffered ICE candidates`);
     for (const candidate of pendingIceRef.current) {
-      try { await pc.addIceCandidate(candidate); } catch (e) {}
+      try { 
+        if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
+      } catch (e) {
+        console.warn('Flush ICE Error:', e);
+      }
     }
     pendingIceRef.current = [];
   }, []);
