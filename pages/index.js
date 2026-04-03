@@ -10,6 +10,10 @@ const ICE_SERVERS = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.ekiga.net' },
+    { urls: 'stun:stun.ideasip.com' },
+    { urls: 'stun:stun.schlund.de' },
+    { urls: 'stun:stun.voxgratia.org' },
     // OpenRelay Public TURN (Shared/Free) - replace with private for production
     {
       urls: 'turn:openrelay.metered.ca:80',
@@ -51,6 +55,7 @@ export default function Home() {
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [interests, setInterests] = useState('');
   const [liveStats, setLiveStats] = useState({ activeUsers: 0, waitingCount: 0 });
+  const [debug, setDebug] = useState({ pc: 'idle', ice: 'idle', tracks: 0 });
   
   const statusRef = useRef('idle');
   const updateStatus = (newStatus) => {
@@ -99,57 +104,74 @@ export default function Home() {
   const createPeerConnection = useCallback((partnerId) => {
     if (typeof window === 'undefined') return null;
     
-    // IDEMPOTENCY: Don't create if already exists
-    if (pcRef.current && pcRef.current.connectionState !== 'closed') {
-      console.log('Using existing PeerConnection');
+    // 1. REUSE IT: If a PC is already active, don't overwrite it (fixes race conditions)
+    if (pcRef.current && pcRef.current.signalingState !== 'closed') {
+      console.log('REUSING existing PeerConnection');
       return pcRef.current;
     }
 
-    console.log('Creating NEW PeerConnection for:', partnerId);
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    console.log('CREATING NEW PeerConnection for:', partnerId || partnerIdRef.current);
+    const pc = new RTCPeerConnection({
+        ...ICE_SERVERS,
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
+    });
     pcRef.current = pc;
 
     pc.onicecandidate = (e) => {
-      if (e.candidate && partnerId) {
+      // Use the LATEST partnerId from the ref to ensure signaling never fails
+      const pId = partnerId || partnerIdRef.current;
+      if (e.candidate && pId) {
         fetch('/api/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetUserId: partnerId, type: 'ice', data: e.candidate, from: userId }),
+          body: JSON.stringify({ targetUserId: pId, type: 'ice', data: e.candidate, from: userId }),
         });
       }
     };
 
     pc.ontrack = (e) => {
-      console.log('Track received!', e.streams);
+      console.log('Track detected!', e.streams[0]?.id);
+      setDebug(d => ({ ...d, tracks: e.streams[0] ? 1 : (d.tracks + 1) }));
+      
       if (remoteVideoRef.current) {
-        // Robust stream attachment
         if (e.streams && e.streams[0]) {
           remoteVideoRef.current.srcObject = e.streams[0];
         } else {
-          // Fallback for browsers that don't provide streams in the event
+          // Fallback if browser doesn't provide streams
           if (!remoteVideoRef.current.srcObject) {
             remoteVideoRef.current.srcObject = new MediaStream();
           }
           remoteVideoRef.current.srcObject.addTrack(e.track);
         }
+        
+        // Force rendering / Avoid first-frame pause bug
+        remoteVideoRef.current.play().catch(() => {});
       }
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log('ICE Connection State:', pc.iceConnectionState);
+      console.log('ICE:', pc.iceConnectionState);
+      setDebug(d => ({ ...d, ice: pc.iceConnectionState }));
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('PC Connection State:', pc.connectionState);
+      console.log('PC:', pc.connectionState);
+      setDebug(d => ({ ...d, pc: pc.connectionState }));
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         handlePartnerLeft();
       }
     };
 
+    // 2. ATTACH TRACKS: Always add local tracks before returning
     const stream = localStreamRef.current;
     if (stream) {
-      console.log('Adding local tracks to PC');
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      console.log('Adding local tracks to PC (count:', stream.getTracks().length, ')');
+      stream.getTracks().forEach(track => {
+        // Avoid adding the same track twice
+        const alreadyAdded = pc.getSenders().find(s => s.track === track);
+        if (!alreadyAdded) pc.addTrack(track, stream);
+      });
     }
 
     return pc;
@@ -510,6 +532,24 @@ export default function Home() {
                 }}
                 className={styles.video} 
               />
+              {status === 'connected' && (
+                <>
+                  <div style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(0,0,0,0.5)', padding: '2px 6px', fontSize: '10px', color: '#fff', borderRadius: '4px', zIndex: 10 }}>
+                    PC:{debug.pc} | ICE:{debug.ice} | T:{debug.tracks}
+                  </div>
+                  {debug.tracks > 0 && !remoteVideoRef.current?.srcObject?.active && (
+                    <button 
+                      onClick={() => {
+                        remoteVideoRef.current.play().catch(() => {});
+                        setDebug(d => ({ ...d, pc: d.pc })); // Force re-render
+                      }}
+                      style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', background: '#3b82f6', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', zIndex: 11 }}
+                    >
+                      🔄 Re-sync Video
+                    </button>
+                  )}
+                </>
+              )}
               {status !== 'connected' && (
                 <div className={styles.videoPlaceholder}>
                   {status === 'idle' && <div className={styles.placeholderContent}><span className={styles.placeholderIcon}>👤</span><p>Stranger</p></div>}
