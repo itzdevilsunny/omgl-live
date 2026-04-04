@@ -706,54 +706,83 @@ export default function StrangerLinkApp() {
 
             {/* Interest card (idle) */}
             {status === 'idle' && (
-              <div className={styles.interestOverlay}>
-                <div className={styles.interestCard}>
-                  <div>
-                    <h1 className={styles.interestTitle}>Meet a Stranger 👋</h1>
-                    <p className={styles.interestSubtitle}>Pick interests to find someone like you</p>
-                  </div>
-                  <div className={styles.interestTags}>
-                    {QUICK_TAGS.map(tag => (
-                      <button
-                        key={tag}
-                        className={`${styles.tagChip} ${activeTags.includes(tag) ? styles.tagChipActive : ''}`}
-                        onClick={() => toggleTag(tag)}
-                      >
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* 🆕 Trending Tags */}
-                  {trendingTags.length > 0 && (
-                    <>
-                      <p className={styles.settingsLabel} style={{ fontSize: '9px', marginBottom: '8px' }}>🔥 Trending Now</p>
-                      <div className={styles.interestTags} style={{ marginBottom: '10px' }}>
-                        {trendingTags.map(tag => (
-                          <button
-                            key={tag}
-                            className={`${styles.tagChip} ${activeTags.includes(tag) ? styles.tagChipActive : ''}`}
-                            style={{ background: 'rgba(250,204,21,0.08)', borderColor: 'rgba(250,204,21,0.2)', color: 'var(--yellow)' }}
-                            onClick={() => toggleTag(tag)}
-                          >
-                            #{tag}
-                          </button>
-                        ))}
+              <div className={styles.idleView}>
+                <div className={styles.heroSection}>
+                  <h1 className={styles.heroTitle}>Meet Strangers <span className={styles.textGradient}>Instantly.</span></h1>
+                  <p className={styles.heroSubtitle}>Premium, high-speed encrypted video chat with built-in safety and discovery.</p>
+                  
+                  <div className={styles.featuresGrid}>
+                    <div className={styles.featureItem}>
+                      <span className={styles.featureIcon}>⚡</span>
+                      <div>
+                        <h4 className={styles.featureName}>P2P Direct</h4>
+                        <p className={styles.featureDesc}>Ultra-low latency connection.</p>
                       </div>
-                    </>
-                  )}
-                  <input
-                    type="text"
-                    placeholder="Add custom interests (comma separated)..."
-                    value={interests}
-                    onChange={e => setInterests(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && startSearching()}
-                    className={styles.input}
-                    style={{ borderRadius: 'var(--radius-sm)' }}
-                  />
-                  <button className={styles.btnStart} onClick={startSearching} style={{ justifyContent: 'center', borderRadius: 'var(--radius-sm)' }}>
-                    ▶ &nbsp;Start Chatting
-                  </button>
+                    </div>
+                    <div className={styles.featureItem}>
+                      <span className={styles.featureIcon}>🔒</span>
+                      <div>
+                        <h4 className={styles.featureName}>End-to-End</h4>
+                        <p className={styles.featureDesc}>Anonymous & ephemeral sessions.</p>
+                      </div>
+                    </div>
+                    <div className={styles.featureItem}>
+                      <span className={styles.featureIcon}>🌍</span>
+                      <div>
+                        <h4 className={styles.featureName}>Global Edge</h4>
+                        <p className={styles.featureDesc}>Matched in under 2 seconds.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.searchCard}>
+                  <h2 className={styles.interestTitle}>Setup your profile</h2>
+                  <div className={styles.interestWrapper}>
+                    <p className={styles.settingsLabel} style={{ fontSize: '9px', marginBottom: '8px' }}>Select interests to match faster</p>
+                    <div className={styles.interestTags}>
+                      {QUICK_TAGS.map(tag => (
+                        <button
+                          key={tag}
+                          className={`${styles.tagChip} ${activeTags.includes(tag) ? styles.tagChipActive : ''}`}
+                          onClick={() => toggleTag(tag)}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* 🆕 Trending Tags */}
+                    {trendingTags.length > 0 && (
+                      <>
+                        <p className={styles.settingsLabel} style={{ fontSize: '9px', marginBottom: '8px' }}>🔥 Trending Now</p>
+                        <div className={styles.interestTags} style={{ marginBottom: '10px' }}>
+                          {trendingTags.map(tag => (
+                            <button
+                              key={tag}
+                              className={`${styles.tagChip} ${activeTags.includes(tag) ? styles.tagChipActive : ''}`}
+                              style={{ background: 'rgba(250,204,21,0.08)', borderColor: 'rgba(250,204,21,0.2)', color: 'var(--yellow)' }}
+                              onClick={() => toggleTag(tag)}
+                            >
+                              #{tag}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    <input
+                      type="text"
+                      placeholder="Add custom interests (comma separated)..."
+                      value={interests}
+                      onChange={e => setInterests(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && startSearching()}
+                      className={styles.input}
+                      style={{ borderRadius: 'var(--radius-sm)' }}
+                    />
+                    <button className={styles.btnStart} onClick={startSearching} style={{ justifyContent: 'center', borderRadius: 'var(--radius-sm)' }}>
+                      ▶ &nbsp;Start Chatting
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
