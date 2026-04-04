@@ -1037,6 +1037,39 @@
   transition: width 0.08s ease;
 }
 
+/* ── ONLINE BADGE ────────────────────────────────────────────── */
+.onlineBadge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(var(--accent-rgb), 0.05);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  border-radius: 100px;
+  margin-right: 4px;
+}
+
+.onlineDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulseTiny 2s ease-in-out infinite;
+}
+
+@keyframes pulseTiny {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+
+.onlineText {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
 @media (max-width: 768px) {
   .header { padding: 0 14px; height: 52px; }
   .tagline { display: none; }

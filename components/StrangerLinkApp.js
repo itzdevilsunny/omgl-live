@@ -53,6 +53,9 @@ export default function StrangerLinkApp() {
   const [selectedVideo, setSelectedVideo] = useState('');    // 🆕 chosen cameraId
   const [selectedAudio, setSelectedAudio] = useState('');    // 🆕 chosen micId
   const [audioLevel,    setAudioLevel]    = useState(0);     // 🆕 for visualizer
+  const [onlineCount,   setOnlineCount]   = useState(0);     // 🆕 total users
+  const [trendingTags,  setTrendingTags]  = useState([]);    // 🆕 popular interests
+  const [connType,      setConnType]      = useState('Direct'); // 🆕 P2P or Relay
 
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -261,7 +264,11 @@ export default function StrangerLinkApp() {
     };
 
     pc.onicecandidate = (e) => {
-      if (e.candidate && partnerIdRef.current) {
+      if (e.candidate) {
+        // 🆕 Connection quality check
+        if (e.candidate.candidate.includes('relay')) setConnType('Relay (Secure)');
+        else if (e.candidate.candidate.includes('srflx')) setConnType('P2P (Direct)');
+
         fetch('/api/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -420,11 +427,14 @@ export default function StrangerLinkApp() {
 
     async function doJoin() {
       try {
-        await fetch('/api/join', {
+        const res = await fetch('/api/join', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId, interests: getInterestsArray() }),
         });
+        const data = await res.json();
+        if (data.onlineCount) setOnlineCount(data.onlineCount);
+        if (data.trending) setTrendingTags(data.trending);
       } catch {}
     }
     doJoin();
@@ -580,6 +590,12 @@ export default function StrangerLinkApp() {
           <div className={styles.tagline}>EPHEMERAL · ANONYMOUS · GLOBAL</div>
 
           <div className={styles.headerActions}>
+            {/* 🆕 Online count */}
+            <div className={styles.onlineBadge}>
+              <span className={styles.onlineDot} />
+              <span className={styles.onlineText}>{onlineCount || '...'} ONLINE</span>
+            </div>
+
             {/* 🆕 Session timer */}
             {isActive && (
               <div className={styles.timerBadge}>
@@ -622,7 +638,7 @@ export default function StrangerLinkApp() {
                 <div className={styles.connectionStatus}>
                   <div className={`${styles.connectionDot} ${isSearching ? styles.connectionDotWaiting : !isActive ? styles.connectionDotOff : ''}`} />
                   <span className={styles.connectionLabel}>
-                    {isSearching ? 'SEARCHING...' : isActive ? 'CONNECTED' : 'DISCONNECTED'}
+                    {isSearching ? 'SEARCHING...' : isActive ? connType.toUpperCase() : 'DISCONNECTED'}
                   </span>
                 </div>
               )}
@@ -707,6 +723,25 @@ export default function StrangerLinkApp() {
                       </button>
                     ))}
                   </div>
+
+                  {/* 🆕 Trending Tags */}
+                  {trendingTags.length > 0 && (
+                    <>
+                      <p className={styles.settingsLabel} style={{ fontSize: '9px', marginBottom: '8px' }}>🔥 Trending Now</p>
+                      <div className={styles.interestTags} style={{ marginBottom: '10px' }}>
+                        {trendingTags.map(tag => (
+                          <button
+                            key={tag}
+                            className={`${styles.tagChip} ${activeTags.includes(tag) ? styles.tagChipActive : ''}`}
+                            style={{ background: 'rgba(250,204,21,0.08)', borderColor: 'rgba(250,204,21,0.2)', color: 'var(--yellow)' }}
+                            onClick={() => toggleTag(tag)}
+                          >
+                            #{tag}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                   <input
                     type="text"
                     placeholder="Add custom interests (comma separated)..."

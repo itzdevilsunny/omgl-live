@@ -14,6 +14,8 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
+const HEARTBEAT_WINDOW_MS = 5500; // 5.5s timeout (pings are every 2s)
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -21,63 +23,76 @@ export default async function handler(req, res) {
     const { userId, interests } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId required' });
 
-    // 1. Try to match by interests (if any)
+    const now = Date.now();
+    const minTime = now - HEARTBEAT_WINDOW_MS;
+
+    // 1. Update Heartbeat
+    await redis.zadd('active_queue', { score: now, member: userId });
+    
+    // 2. Fetch Trending Tags (Top 12)
+    const trending = await redis.zrevrange('trending_tags', 0, 11);
+    const onlineCount = await redis.zcount('active_queue', minTime, '+inf');
+
+    // 3. Matchmaking by interests
     if (interests && Array.isArray(interests) && interests.length > 0) {
       for (const tag of interests) {
         const sanitizedTag = tag.toLowerCase().trim();
         if (!sanitizedTag) continue;
 
-        const partnerId = await redis.spop(`waiting_tag:${sanitizedTag}`);
-        if (partnerId && partnerId !== userId) {
-          const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          
-          // ✅ FIX: Only ONE peer is initiator. The newly-matched user (partnerId) 
-          // is the initiator (they create the offer). The waiting user (userId) is the answerer.
-          await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId });
-          await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId });
-          
-          for (const otherTag of interests) {
-            await redis.srem(`waiting_tag:${otherTag.toLowerCase().trim()}`, userId);
-          }
-          await redis.srem('waiting_users', userId);
+        // Find an active user in this tag who isn't me
+        const candidates = await redis.zrangebyscore(`waiting_tag:${sanitizedTag}`, minTime, '+inf', { offset: 0, count: 10 });
+        const partnerId = candidates.find(id => id !== userId);
 
-          return res.status(200).json({ waiting: false, partnerId });
+        if (partnerId) {
+          // Atomic grab
+          const removed = await redis.zrem(`waiting_tag:${sanitizedTag}`, partnerId);
+          if (removed) {
+            const roomId = `room-i-${now}-${Math.random().toString(36).slice(2, 6)}`;
+            
+            // Trigger both
+            await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId });
+            await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId });
+            
+            // Cleanup my own presence
+            await redis.zrem('active_queue', userId);
+            await redis.zrem('active_queue', partnerId);
+            for (const t of interests) await redis.zrem(`waiting_tag:${t.toLowerCase().trim()}`, userId);
+
+            return res.status(200).json({ waiting: false, partnerId, trending, onlineCount });
+          }
         }
       }
 
+      // Add self to tag queues
       for (const tag of interests) {
         const sanitizedTag = tag.toLowerCase().trim();
         if (sanitizedTag) {
-          await redis.sadd(`waiting_tag:${sanitizedTag}`, userId);
-          await redis.expire(`waiting_tag:${sanitizedTag}`, 60);
+          await redis.zadd(`waiting_tag:${sanitizedTag}`, { score: now, member: userId });
+          await redis.expire(`waiting_tag:${sanitizedTag}`, 10);
           await redis.zincrby('trending_tags', 1, sanitizedTag);
         }
       }
     }
 
-    // 2. Global Fallback / Default Matching
-    const partnerId = await redis.spop('waiting_users');
-    if (partnerId && partnerId !== userId) {
-      const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      
-      // ✅ FIX: Only ONE peer is initiator. The waiting user (partnerId) is initiator.
-      await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId });
-      await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId });
-      
-      if (interests) {
-        for (const tag of interests) {
-          await redis.srem(`waiting_tag:${tag.toLowerCase().trim()}`, userId);
-        }
-      }
+    // 4. Global Matchmaking (fallback)
+    const globalCandidates = await redis.zrangebyscore('active_queue', minTime, '+inf', { offset: 0, count: 20 });
+    const partnerId = globalCandidates.find(id => id !== userId);
 
-      return res.status(200).json({ waiting: false, partnerId });
+    if (partnerId) {
+      const removed = await redis.zrem('active_queue', partnerId);
+      if (removed) {
+        const roomId = `room-g-${now}-${Math.random().toString(36).slice(2, 6)}`;
+        
+        await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId });
+        await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId });
+
+        await redis.zrem('active_queue', userId);
+        return res.status(200).json({ waiting: false, partnerId, trending, onlineCount });
+      }
     }
 
     // Still waiting
-    await redis.sadd('waiting_users', userId);
-    await redis.zadd('global_activity', { score: Date.now(), member: userId });
-    
-    return res.status(200).json({ waiting: true });
+    return res.status(200).json({ waiting: true, trending, onlineCount });
   } catch (error) {
     console.error('Join API Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
