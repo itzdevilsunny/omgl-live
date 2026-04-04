@@ -616,9 +616,17 @@
   backdrop-filter: blur(20px);
   animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
-  z-index: 15;
+
+.interestOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 150 !important;
+  background: rgba(7,7,13,0.85);
   padding: 24px;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(10px);
 }
 
 :global([data-theme="light"]) .interestOverlay {
