@@ -29,10 +29,13 @@ export default async function handler(req, res) {
 
         const partnerId = await redis.spop(`waiting_tag:${sanitizedTag}`);
         if (partnerId && partnerId !== userId) {
-          const roomId = `room-${userId}-${partnerId}`;
-          await pusher.trigger([`user-${userId}`, `user-${partnerId}`], 'matched', { roomId, isInitiator: true });
+          const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           
-          // Cleanup this user from other potential tag sets
+          // ✅ FIX: Only ONE peer is initiator. The newly-matched user (partnerId) 
+          // is the initiator (they create the offer). The waiting user (userId) is the answerer.
+          await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId });
+          await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId });
+          
           for (const otherTag of interests) {
             await redis.srem(`waiting_tag:${otherTag.toLowerCase().trim()}`, userId);
           }
@@ -42,14 +45,11 @@ export default async function handler(req, res) {
         }
       }
 
-      // If no partner found in any tag set, add current user to all their tag sets
       for (const tag of interests) {
         const sanitizedTag = tag.toLowerCase().trim();
         if (sanitizedTag) {
           await redis.sadd(`waiting_tag:${sanitizedTag}`, userId);
-          await redis.expire(`waiting_tag:${sanitizedTag}`, 60); // 1 minute TTL
-          
-          // Rank trending tags (for the dashboard)
+          await redis.expire(`waiting_tag:${sanitizedTag}`, 60);
           await redis.zincrby('trending_tags', 1, sanitizedTag);
         }
       }
@@ -58,10 +58,12 @@ export default async function handler(req, res) {
     // 2. Global Fallback / Default Matching
     const partnerId = await redis.spop('waiting_users');
     if (partnerId && partnerId !== userId) {
-      const roomId = `room-${userId}-${partnerId}`;
-      await pusher.trigger([`user-${userId}`, `user-${partnerId}`], 'matched', { roomId, isInitiator: true });
+      const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       
-      // Cleanup tags if they matched globally
+      // ✅ FIX: Only ONE peer is initiator. The waiting user (partnerId) is initiator.
+      await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId });
+      await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId });
+      
       if (interests) {
         for (const tag of interests) {
           await redis.srem(`waiting_tag:${tag.toLowerCase().trim()}`, userId);
@@ -73,8 +75,6 @@ export default async function handler(req, res) {
 
     // Still waiting
     await redis.sadd('waiting_users', userId);
-    
-    // Update global activity tracker
     await redis.zadd('global_activity', { score: Date.now(), member: userId });
     
     return res.status(200).json({ waiting: true });
