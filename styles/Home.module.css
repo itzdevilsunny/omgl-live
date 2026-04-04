@@ -10,19 +10,15 @@
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  background: var(--bg);
   position: relative;
   overflow: hidden;
   transition: background var(--transition);
-  background-image:
-    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(124,106,255,0.12) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 90% 110%, rgba(74,255,212,0.06) 0%, transparent 60%);
 }
 
 /* Light theme container gradient */
 :global([data-theme="light"]) .container {
-  background-image:
-    radial-gradient(ellipse 80% 60% at 10% -10%, rgba(98,80,239,0.07) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 90% 110%, rgba(0,184,148,0.05) 0%, transparent 60%);
+  background: var(--bg);
 }
 
 .container::before {
@@ -30,8 +26,8 @@
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(128,128,200,0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(128,128,200,0.025) 1px, transparent 1px);
+    linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
   z-index: 0;
@@ -50,7 +46,7 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(7,7,13,0.88);
+  background: var(--surface);
   flex-shrink: 0;
   gap: 12px;
   transition: background var(--transition);
@@ -76,8 +72,8 @@
 }
 
 @keyframes logoPulse {
-  0%,100% { filter: drop-shadow(0 0 6px var(--accent)); }
-  50%      { filter: drop-shadow(0 0 16px var(--accent)) drop-shadow(0 0 32px rgba(124,106,255,0.35)); }
+  0%,100% { filter: drop-shadow(0 0 4px var(--accent)); }
+  50%      { filter: drop-shadow(0 0 12px var(--accent)) drop-shadow(0 0 24px var(--accent-glow)); }
 }
 
 .logoText {
@@ -192,9 +188,8 @@
 /* ── MAIN LAYOUT ─────────────────────────────────────────────── */
 .main {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 360px;
-  grid-template-rows: 1fr;
+  display: flex;
+  flex-direction: column; /* Stack video and chat vertically */
   position: relative;
   z-index: 1;
   overflow: hidden;
@@ -204,10 +199,12 @@
 /* ── VIDEO AREA ─────────────────────────────────────────────── */
 .videoArea {
   position: relative;
-  background: #050508;
+  background: var(--bg);
   overflow: hidden;
   display: flex;
-  flex-direction: column;  /* Stack both videos vertically */
+  flex-direction: row;  /* Side-by-side videos on desktop */
+  flex: 1.5;            /* video takes more space than chat */
+  min-height: 0;
 }
 
 :global([data-theme="light"]) .videoArea {
@@ -217,34 +214,24 @@
 /* Both video slots are equal-size halves */
 .videoSlotRemote {
   position: relative;
-  flex: 1;              /* 50% of videoArea height */
+  flex: 1;              /* 50% of videoArea width */
   overflow: hidden;
-  border-bottom: 2px solid rgba(255,255,255,0.06);
 }
 
 .videoRemote {
   width: 100%;
   height: 100%;
-  object-fit: contain;  /* Never zoom/crop — show full frame */
+  object-fit: contain;
   display: block;
-  background: #000;
-  /* No mirror on remote — that would invert their content */
+  background: var(--bg);
 }
 
-/* Local video — same half-panel as remote */
 .videoSlotLocal {
   position: relative;
-  flex: 1;              /* 50% of videoArea height */
+  flex: 1;              /* 50% of videoArea width */
   overflow: hidden;
-  background: var(--surface);
-  /* Reset the old PiP absolute positioning */
-  bottom: unset;
-  right: unset;
-  width: unset;
-  height: unset;
-  border-radius: 0;
-  border: none;
-  box-shadow: none;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
 }
 
 
@@ -450,21 +437,19 @@
 /* ── FLOATING CONTROLS BAR ────────────────────────────────────── */
 .controlsBar {
   position: absolute;
-  bottom: 18px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(10,10,20,0.82);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 100px;
-  padding: 9px 16px;
+  gap: 4px;
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px;
   backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
-  box-shadow: var(--shadow), 0 0 0 1px rgba(255,255,255,0.04);
-  z-index: 20;
-  white-space: nowrap;
+  z-index: 50;
+  box-shadow: var(--shadow);
 }
 
 :global([data-theme="light"]) .controlsBar {
@@ -476,26 +461,33 @@
 /* ── BUTTONS ─────────────────────────────────────────────────── */
 .btnStart {
   background: var(--accent);
-  color: #fff;
+  color: #000;                /* Black text on orange for high contrast */
   font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.04em;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   border: none;
-  border-radius: 100px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  padding: 12px 28px;
-  transition: all 0.2s ease;
-  box-shadow: 0 0 24px var(--accent-glow);
+  padding: 14px 32px;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: 0 4px 0px rgba(0,0,0,0.2), 0 0 20px var(--accent-glow);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 10px;
 }
 
 .btnStart:hover {
-  filter: brightness(1.15);
-  box-shadow: 0 0 36px rgba(124,106,255,0.48);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0px rgba(0,0,0,0.2), 0 0 30px var(--accent-glow);
+  filter: brightness(1.05);
+}
+
+.btnStart:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 0px rgba(0,0,0,0.2);
 }
 
 .btnStop {
@@ -600,9 +592,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(7,7,13,0.94);
+  background: rgba(18, 18, 18, 0.96);
   z-index: 100;
-  backdrop-filter: blur(8px);
+  backdrop-filter: grayscale(1) blur(4px);
 }
 
 .idleView {
@@ -710,8 +702,10 @@
 .rightPanel {
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   background: var(--surface);
+  flex: 1;                 /* Chat area at the bottom */
+  min-height: 200px;
   overflow: hidden;
 }
 
@@ -1252,12 +1246,13 @@
 }
 
 .searchCard {
-  width: 380px;
+  width: 100%;
+  max-width: 440px;
   background: var(--surface2);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+  border-radius: var(--radius);
+  padding: 32px;
+  box-shadow: 0 32px 64px rgba(0,0,0,0.4);
   position: relative;
   overflow: hidden;
   z-index: 10;
@@ -1406,10 +1401,20 @@
   .logoText { font-size: 17px; }
 
   .main {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
+    display: flex;
+    flex-direction: column;
     height: calc(100svh - 52px);
     height: calc(100dvh - 52px);
+  }
+
+  .videoArea {
+    flex-direction: column; /* Stack videos on mobile */
+    flex: 2;                /* Give video more space on mobile */
+  }
+
+  .videoSlotLocal {
+    border-left: none;
+    border-top: 1px solid var(--border);
   }
 
   .rightPanel {
