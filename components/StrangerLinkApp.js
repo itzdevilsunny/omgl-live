@@ -79,6 +79,7 @@ export default function StrangerLinkApp() {
   const [pusherStatus,  setPusherStatus]  = useState('disconnected'); // 🆕 signaling state
   const [blurBackground, setBlurBackground] = useState(false); // 🆕 virtual bg blur
   const [chatTheme,      setChatTheme]      = useState('standard'); // 🆕 standard|neon|cyber|luxury
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false); // 🔔 push alert toggle
   
   // 🆕 Advanced Profile States
   const [chatMode,      setChatMode]      = useState('video');
@@ -660,6 +661,20 @@ export default function StrangerLinkApp() {
       if (matchedTag) setSharedTag(matchedTag);
       if (pCountry) setPartnerCountry(pCountry);
       updateStatus('connected');
+      
+      // 🔔 Push Notification if backgrounded
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission === 'granted' && document.hidden) {
+          const flag = getFlagEmoji(pCountry);
+          new Notification(`🎉 New Match Found! ${flag}`, {
+            body: `Connected with someone from ${pCountry || 'Earth'}. Tap to chat!`,
+            icon: '/favicon.ico',
+            tag: 'match-found',
+            renotify: true
+          }).onclick = () => { window.focus(); };
+        }
+      }
+
       const flag = getFlagEmoji(pCountry);
       setMessages([{ from: 'system', text: `🔗 Connected! ${flag} ${matchedTag ? `Matched on #${matchedTag}` : 'Found a stranger.'}` }]);
       setUnreadCount(0);
@@ -971,6 +986,8 @@ export default function StrangerLinkApp() {
       document.documentElement.setAttribute('data-theme', saved);
       const savedCT = localStorage.getItem('sl-chat-theme') || 'standard';
       setChatTheme(savedCT);
+      const savedNotifs = localStorage.getItem('sl-notifications') === 'true';
+      setNotificationsEnabled(savedNotifs);
     } catch { document.documentElement.setAttribute('data-theme', 'dark'); }
 
     // Initialize Pusher on mount
@@ -1602,6 +1619,35 @@ export default function StrangerLinkApp() {
                   />
                   <label htmlFor="sound-toggle" style={{ fontSize: '13px', cursor: 'pointer' }}>Enable Sound Effects</label>
                 </div>
+              </div>
+
+              <div className={styles.settingsGroup}>
+                <label className={styles.settingsLabel}>🔔 background Alerts</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' }}>
+                  <button
+                    onClick={async () => {
+                      if (!notificationsEnabled) {
+                        const res = await Notification.requestPermission();
+                        if (res === 'granted') {
+                          setNotificationsEnabled(true);
+                          localStorage.setItem('sl-notifications', 'true');
+                        } else {
+                          alert('Please enable notifications in your browser settings to use this feature.');
+                        }
+                      } else {
+                        setNotificationsEnabled(false);
+                        localStorage.setItem('sl-notifications', 'false');
+                      }
+                    }}
+                    className={`${styles.blurToggleBtn} ${notificationsEnabled ? styles.blurToggleBtnActive : ''}`}
+                    style={{ flex: 1, padding: '10px', fontSize: '12px' }}
+                  >
+                    {notificationsEnabled ? '✅ Notifications: ON' : '🔔 Enable Push Notifications'}
+                  </button>
+                </div>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                  Get alerted when a match is found, even if this tab is in the background.
+                </p>
               </div>
 
               <div className={styles.debugHud} style={{ position: 'static', marginTop: '10px' }}>
