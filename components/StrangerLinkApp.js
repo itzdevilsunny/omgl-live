@@ -1,30 +1,53 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import Head from 'next/head';
 import Pusher from 'pusher-js';
 import styles from '../styles/Home.module.css';
 
-/* ── ICE Config ─────────────────────────────────────────────── */
+/* ── Constants ─────────────────────────────────────────────── */
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'turn:openrelay.metered.ca:80',     username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443',    username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:80',                  username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443',                 username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp',   username: 'openrelayproject', credential: 'openrelayproject' },
   ],
 };
 
-const QUICK_TAGS = ['gaming', 'coding', 'music', 'anime', 'movies', 'art', 'sports', 'travel'];
+const QUICK_TAGS    = ['🎮 gaming','💻 coding','🎵 music','🎌 anime','🎬 movies','🎨 art','⚽ sports','✈️ travel','📚 books','🍕 food'];
+const CHAT_EMOJIS   = ['😂','❤️','👍','🔥','😍','😭','🤣','✨','💯','😎','👀','🙏','💪','😅','🥰'];
+const REACT_EMOJIS  = ['👋','❤️','😂','🔥','👏','🎉'];
 
 function generateUserId() {
   return 'u-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-/* ── Component ──────────────────────────────────────────────── */
+function formatTime(sec) {
+  const m = String(Math.floor(sec / 60)).padStart(2, '0');
+  const s = String(sec % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+/* ── Component ─────────────────────────────────────────────── */
 export default function StrangerLinkApp() {
-  /* STATE */
-  const [mounted, setMounted] = useState(false);
+  /* ── STATE ─────────────────────────────────────────────────── */
+  const [mounted,       setMounted]       = useState(false);
+  const [theme,         setTheme]         = useState('dark');   // 'dark' | 'light'
+  const [status,        setStatus]        = useState('idle');   // idle|requesting|waiting|connected|disconnected
+  const [isMuted,       setIsMuted]       = useState(false);
+  const [isCamOff,      setIsCamOff]      = useState(false);
+  const [messages,      setMessages]      = useState([]);
+  const [inputMsg,      setInputMsg]      = useState('');
+  const [partnerTyping, setPartnerTyping] = useState(false);
+  const [interests,     setInterests]     = useState('');
+  const [activeTags,    setActiveTags]    = useState([]);
+  const [debugMsg,      setDebugMsg]      = useState('');
+  const [unreadCount,   setUnreadCount]   = useState(0);     // 🆕 unread badge
+  const [callTimer,     setCallTimer]     = useState(0);     // 🆕 session timer (seconds)
+  const [reactions,     setReactions]     = useState([]);    // 🆕 floating emoji [{id,emoji,x,y}]
+  const [showEmojiBar,  setShowEmojiBar]  = useState(false); // 🆕 emoji picker toggle
+
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
       let id = sessionStorage.getItem('userId');
@@ -34,44 +57,69 @@ export default function StrangerLinkApp() {
     return 'ssr';
   });
 
-  const [status, setStatus] = useState('idle');
-  // idle | requesting | waiting | connected | disconnected
-  const [isMuted, setIsMuted] = useState(false);
-  const [isCamOff, setIsCamOff] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [inputMsg, setInputMsg] = useState('');
-  const [partnerTyping, setPartnerTyping] = useState(false);
-  const [interests, setInterests] = useState('');
-  const [activeTags, setActiveTags] = useState([]);
-  const [debugMsg, setDebugMsg] = useState('');
-  const [msgCount, setMsgCount] = useState(0);
-
-  /* REFS */
-  const statusRef      = useRef('idle');
-  const localVideoRef  = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const localStreamRef = useRef(null);
-  const remoteStreamRef= useRef(null);
-  const pollingRef     = useRef(null);
-  const pendingIceRef  = useRef([]);
-  const pcRef          = useRef(null);
-  const pusherRef      = useRef(null);
-  const partnerIdRef   = useRef(null);
-  const roomIdRef      = useRef(null);
-  const chatEndRef     = useRef(null);
-  const typingTimer    = useRef(null);
-  const userIdRef      = useRef(userId);
+  /* ── REFS ──────────────────────────────────────────────────── */
+  const statusRef       = useRef('idle');
+  const localVideoRef   = useRef(null);
+  const remoteVideoRef  = useRef(null);
+  const localStreamRef  = useRef(null);
+  const remoteStreamRef = useRef(null);
+  const pollingRef      = useRef(null);
+  const pendingIceRef   = useRef([]);
+  const pcRef           = useRef(null);
+  const pusherRef       = useRef(null);
+  const partnerIdRef    = useRef(null);
+  const roomIdRef       = useRef(null);
+  const chatEndRef      = useRef(null);
+  const typingTimer     = useRef(null);
+  const userIdRef       = useRef(userId);
+  const timerRef        = useRef(null);   // 🆕 interval for call timer
+  const chatScrollRef   = useRef(null);   // 🆕 for unread badge logic
+  const reactionIdRef   = useRef(0);      // 🆕 unique ID for floating reactions
 
   /* ── UTILS ─────────────────────────────────────────────────── */
   function updateStatus(s) { statusRef.current = s; setStatus(s); }
   function log(msg) { console.log('[SL]', msg); setDebugMsg(msg); }
-
   function getInterestsArray() {
     const manual = interests.split(',').map(i => i.trim()).filter(Boolean);
-    return [...new Set([...activeTags, ...manual])];
+    return [...new Set([...activeTags.map(t => t.replace(/^[^\w]+/, '').trim()), ...manual])];
   }
 
-  /* ── MEDIA ──────────────────────────────────────────────────── */
+  /* ── THEME ─────────────────────────────────────────────────── */
+  function toggleTheme() {
+    setTheme(t => {
+      const next = t === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('sl-theme', next); } catch {}
+      return next;
+    });
+  }
+
+  /* ── TIMER ─────────────────────────────────────────────────── */
+  function startTimer() {
+    setCallTimer(0);
+    timerRef.current = setInterval(() => setCallTimer(n => n + 1), 1000);
+  }
+  function stopTimer() {
+    clearInterval(timerRef.current);
+    setCallTimer(0);
+  }
+
+  /* ── EMOJI REACTIONS ───────────────────────────────────────── */
+  function sendReaction(emoji) {
+    spawnReaction(emoji, true);
+    if (partnerIdRef.current) sig(partnerIdRef.current, 'reaction', { emoji });
+  }
+
+  function spawnReaction(emoji, isLocal) {
+    const id = ++reactionIdRef.current;
+    // Random horizontal position
+    const x = 10 + Math.random() * 60;
+    const y = 30 + Math.random() * 40;
+    setReactions(prev => [...prev, { id, emoji, x, y }]);
+    setTimeout(() => setReactions(prev => prev.filter(r => r.id !== id)), 2600);
+  }
+
+  /* ── MEDIA ─────────────────────────────────────────────────── */
   async function getLocalStream() {
     if (localStreamRef.current) return localStreamRef.current;
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -83,15 +131,13 @@ export default function StrangerLinkApp() {
     return stream;
   }
 
-  /* ── WEBRTC ─────────────────────────────────────────────────── */
+  /* ── WEBRTC ────────────────────────────────────────────────── */
   function createPeerConnection() {
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-
     log('Creating PeerConnection...');
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
-    // Stable remote stream — attach once to video element
     const remoteStream = new MediaStream();
     remoteStreamRef.current = remoteStream;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
@@ -99,8 +145,13 @@ export default function StrangerLinkApp() {
     pc.ontrack = (e) => {
       log(`Track: ${e.track.kind}`);
       remoteStream.addTrack(e.track);
-      if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStream) {
-        remoteVideoRef.current.srcObject = remoteStream;
+      if (remoteVideoRef.current) {
+        if (remoteVideoRef.current.srcObject !== remoteStream) {
+          remoteVideoRef.current.srcObject = remoteStream;
+        }
+        // ✅ AUDIO FIX: ensure remote video is never muted (only local is muted for echo prevention)
+        remoteVideoRef.current.muted = false;
+        remoteVideoRef.current.play().catch(() => {});
       }
     };
 
@@ -117,7 +168,7 @@ export default function StrangerLinkApp() {
     pc.onicegatheringstatechange = () => log(`Gathering: ${pc.iceGatheringState}`);
     pc.oniceconnectionstatechange = () => {
       log(`ICE: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'failed') { log('ICE failed — restarting'); pc.restartIce(); }
+      if (pc.iceConnectionState === 'failed') { log('ICE failed — restart'); pc.restartIce(); }
     };
     pc.onconnectionstatechange = () => {
       log(`PC: ${pc.connectionState}`);
@@ -126,7 +177,6 @@ export default function StrangerLinkApp() {
 
     const stream = localStreamRef.current;
     if (stream) stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
     return pc;
   }
 
@@ -138,7 +188,15 @@ export default function StrangerLinkApp() {
     for (const c of queue) try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
   }
 
-  /* ── SIGNALING HANDLERS ────────────────────────────────────── */
+  /* ── SIGNALING ─────────────────────────────────────────────── */
+  async function sig(targetUserId, type, data) {
+    await fetch('/api/signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUserId, type, data, from: userIdRef.current }),
+    });
+  }
+
   async function handleOffer(offer, fromId) {
     log(`Offer from ${fromId}`);
     partnerIdRef.current = fromId;
@@ -161,29 +219,22 @@ export default function StrangerLinkApp() {
 
   async function handleIce(candidate) {
     const pc = pcRef.current;
-    if (!pc || !pc.remoteDescription) { pendingIceRef.current.push(candidate); }
+    if (!pc || !pc.remoteDescription) pendingIceRef.current.push(candidate);
     else try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
-  }
-
-  async function sig(targetUserId, type, data) {
-    await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId, type, data, from: userIdRef.current }),
-    });
   }
 
   /* ── CALL FLOW ─────────────────────────────────────────────── */
   async function startCall(isInitiator) {
     log(`startCall isInitiator=${isInitiator}`);
     await getLocalStream();
+    startTimer();
     if (isInitiator) {
       await new Promise(r => setTimeout(r, 800));
       const pc = createPeerConnection();
       const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
-      log(`Sending offer to ${partnerIdRef.current}`);
       await sig(partnerIdRef.current, 'offer', offer);
+      log('Offer sent');
     }
   }
 
@@ -200,20 +251,26 @@ export default function StrangerLinkApp() {
       if (partnerId) partnerIdRef.current = partnerId;
       if (pollingRef.current) clearInterval(pollingRef.current);
       updateStatus('connected');
-      setMessages([]);
-      setMsgCount(0);
+      setMessages([{ from: 'system', text: '🔗 Connected to a stranger!' }]);
+      setUnreadCount(0);
       await startCall(isInitiator);
     });
 
     ch.bind('signal', async ({ type, data, from }) => {
       if (from && !partnerIdRef.current) partnerIdRef.current = from;
-      if (type === 'offer')        await handleOffer(data, from);
-      else if (type === 'answer')  await handleAnswer(data);
-      else if (type === 'ice')     await handleIce(data);
+      if      (type === 'offer')       await handleOffer(data, from);
+      else if (type === 'answer')      await handleAnswer(data);
+      else if (type === 'ice')         await handleIce(data);
+      else if (type === 'reaction')    spawnReaction(data.emoji, false);  // 🆕
       else if (type === 'chat' && statusRef.current === 'connected') {
         setMessages(m => [...m, { from: 'them', text: data.text }]);
-        setMsgCount(n => n + 1);
         setPartnerTyping(false);
+        // 🆕 Increment unread if user has scrolled up
+        if (chatScrollRef.current) {
+          const el = chatScrollRef.current;
+          const isScrolledUp = el.scrollHeight - el.scrollTop - el.clientHeight > 60;
+          if (isScrolledUp) setUnreadCount(n => n + 1);
+        }
       }
       else if (type === 'typing')       setPartnerTyping(true);
       else if (type === 'stop-typing')  setPartnerTyping(false);
@@ -230,22 +287,25 @@ export default function StrangerLinkApp() {
   /* ── ACTIONS ────────────────────────────────────────────────── */
   function handlePartnerLeft() {
     log('Partner left');
+    stopTimer();
     updateStatus('disconnected');
-    setMessages(m => [...m, { from: 'system', text: 'Stranger has left the chat.' }]);
+    setMessages(m => [...m, { from: 'system', text: '👋 Stranger has left the chat.' }]);
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     remoteStreamRef.current = null;
     pcRef.current?.close();
     pcRef.current = null;
     partnerIdRef.current = null;
     pendingIceRef.current = [];
+    setReactions([]);
   }
 
   async function startSearching() {
     if (statusRef.current === 'requesting' || statusRef.current === 'waiting') return;
     updateStatus('requesting');
     setMessages([]);
+    setUnreadCount(0);
     try { await getLocalStream(); } catch {
-      alert('Camera and microphone required. Please allow access and try again.');
+      alert('Camera and microphone access required. Please allow and try again.');
       updateStatus('idle'); return;
     }
     connectSignaling();
@@ -270,6 +330,7 @@ export default function StrangerLinkApp() {
   }
 
   async function skipPartner() {
+    stopTimer();
     if (partnerIdRef.current) {
       fetch('/api/leave', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ partnerId: partnerIdRef.current, userId }) }).catch(() => {});
     }
@@ -279,7 +340,10 @@ export default function StrangerLinkApp() {
     partnerIdRef.current = null;
     pendingIceRef.current = [];
     setMessages([]);
+    setUnreadCount(0);
+    setReactions([]);
     updateStatus('waiting');
+
     async function doJoin() {
       try { await fetch('/api/join', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ userId, interests: getInterestsArray() }) }); } catch {}
     }
@@ -291,6 +355,7 @@ export default function StrangerLinkApp() {
   }
 
   async function stopChat() {
+    stopTimer();
     if (pollingRef.current) clearInterval(pollingRef.current);
     if (partnerIdRef.current) fetch('/api/leave', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ partnerId: partnerIdRef.current, userId }) }).catch(() => {});
     pcRef.current?.close(); pcRef.current = null;
@@ -302,24 +367,26 @@ export default function StrangerLinkApp() {
     remoteStreamRef.current = null;
     disconnectSignaling();
     updateStatus('idle');
-    setMessages([]); setDebugMsg(''); setMsgCount(0);
+    setMessages([]); setDebugMsg(''); setUnreadCount(0); setReactions([]);
   }
 
   function toggleMute() {
     const tr = localStreamRef.current?.getAudioTracks()[0];
     if (tr) { tr.enabled = !tr.enabled; setIsMuted(!tr.enabled); }
   }
+
   function toggleCam() {
     const tr = localStreamRef.current?.getVideoTracks()[0];
     if (tr) { tr.enabled = !tr.enabled; setIsCamOff(!tr.enabled); }
   }
 
-  async function sendMessage() {
-    if (!inputMsg.trim() || !partnerIdRef.current) return;
-    const text = inputMsg.trim();
+  async function sendMessage(text) {
+    const msg = text || inputMsg.trim();
+    if (!msg || !partnerIdRef.current) return;
     setInputMsg('');
-    setMessages(m => [...m, { from: 'me', text }]);
-    await sig(partnerIdRef.current, 'chat', { text });
+    setShowEmojiBar(false);
+    setMessages(m => [...m, { from: 'me', text: msg }]);
+    await sig(partnerIdRef.current, 'chat', { text: msg });
   }
 
   function handleTypingInput(val) {
@@ -337,16 +404,31 @@ export default function StrangerLinkApp() {
   /* ── EFFECTS ────────────────────────────────────────────────── */
   useEffect(() => {
     setMounted(true);
-    return () => { if (statusRef.current !== 'idle') stopChat(); };
+    // Load saved theme
+    try {
+      const saved = localStorage.getItem('sl-theme') || 'dark';
+      setTheme(saved);
+      document.documentElement.setAttribute('data-theme', saved);
+    } catch { document.documentElement.setAttribute('data-theme', 'dark'); }
+
+    return () => {
+      if (statusRef.current !== 'idle') stopChat();
+      stopTimer();
+    };
   }, []);
 
+  // Auto-scroll chat to bottom and reset unread
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatScrollRef.current) {
+      const el = chatScrollRef.current;
+      el.scrollTop = el.scrollHeight;
+      setUnreadCount(0);
+    }
   }, [messages]);
 
   if (!mounted) return <div style={{ background: '#07070d', height: '100vh' }} />;
 
-  const isActive = status === 'connected';
+  const isActive    = status === 'connected';
   const isSearching = status === 'waiting' || status === 'requesting';
 
   /* ── RENDER ─────────────────────────────────────────────────── */
@@ -354,7 +436,7 @@ export default function StrangerLinkApp() {
     <>
       <Head>
         <title>StrangerLink — Meet Someone New</title>
-        <meta name="description" content="Connect with random strangers via video chat. Ephemeral, anonymous, global." />
+        <meta name="description" content="Connect with random people via live video chat. Anonymous, ephemeral, global." />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
         <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>◈</text></svg>" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -363,41 +445,53 @@ export default function StrangerLinkApp() {
       </Head>
 
       <div className={styles.container}>
+
         {/* ── HEADER ─────────────────────────────────────────── */}
         <header className={styles.header}>
           <div className={styles.logo}>
             <span className={styles.logoMark}>◈</span>
             <span className={styles.logoText}>StrangerLink</span>
           </div>
+
           <div className={styles.tagline}>EPHEMERAL · ANONYMOUS · GLOBAL</div>
-          <div className={styles.liveBadge}>
-            <div className={styles.livePulse} />
-            <span className={styles.liveCount}>LIVE</span>
+
+          <div className={styles.headerActions}>
+            {/* 🆕 Session timer */}
+            {isActive && (
+              <div className={styles.timerBadge}>
+                ⏱ {formatTime(callTimer)}
+              </div>
+            )}
+
+            {/* 🆕 Theme toggle */}
+            <button className={styles.themeBtn} onClick={toggleTheme} title="Toggle theme">
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
+
+            {/* Live badge */}
+            <div className={styles.liveBadge}>
+              <div className={styles.livePulse} />
+              <span className={styles.liveCount}>LIVE</span>
+            </div>
           </div>
         </header>
 
         {/* ── MAIN ───────────────────────────────────────────── */}
         <main className={styles.main}>
 
-          {/* LEFT: VIDEO AREA */}
+          {/* ══ LEFT: VIDEO AREA ══════════════════════════════ */}
           <div className={styles.videoArea}>
-            {/* Remote video */}
-            <div className={styles.videoSlotRemote}>
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className={styles.videoRemote}
-              />
 
-              {/* Vignette overlay */}
+            {/* Remote */}
+            <div className={styles.videoSlotRemote}>
+              {/* ✅ AUDIO FIX: No 'muted' here — only local video is muted to prevent echo */}
+              <video ref={remoteVideoRef} autoPlay playsInline className={styles.videoRemote} />
               <div className={styles.videoVignette} />
 
               {/* Status indicator */}
               {status !== 'idle' && (
                 <div className={styles.connectionStatus}>
-                  <div className={`${styles.connectionDot} ${isSearching ? styles.connectionDotWaiting : ''}`} />
+                  <div className={`${styles.connectionDot} ${isSearching ? styles.connectionDotWaiting : !isActive ? styles.connectionDotOff : ''}`} />
                   <span className={styles.connectionLabel}>
                     {isSearching ? 'SEARCHING...' : isActive ? 'CONNECTED' : 'DISCONNECTED'}
                   </span>
@@ -405,38 +499,16 @@ export default function StrangerLinkApp() {
               )}
 
               {/* Debug HUD */}
-              {debugMsg && isActive && (
-                <div className={styles.debugHud}>{debugMsg}</div>
-              )}
+              {debugMsg && isActive && <div className={styles.debugHud}>{debugMsg}</div>}
 
-              {/* Placeholder for remote */}
-              {status !== 'connected' && (
+              {/* Placeholder */}
+              {!isActive && (
                 <div className={styles.videoPlaceholder}>
                   <div className={styles.placeholderContent}>
-                    {status === 'idle' && (
-                      <>
-                        <span className={styles.placeholderIcon}>👤</span>
-                        <span className={styles.placeholderText}>Start to meet someone</span>
-                      </>
-                    )}
-                    {status === 'requesting' && (
-                      <>
-                        <div className={styles.spinner} />
-                        <span className={styles.placeholderText}>Requesting camera...</span>
-                      </>
-                    )}
-                    {status === 'waiting' && (
-                      <>
-                        <div className={styles.pulser} />
-                        <span className={styles.placeholderText}>Finding a stranger...</span>
-                      </>
-                    )}
-                    {status === 'disconnected' && (
-                      <>
-                        <span className={styles.placeholderIcon}>👋</span>
-                        <span className={styles.placeholderText}>Stranger left. Start again?</span>
-                      </>
-                    )}
+                    {status === 'idle'         && <><span className={styles.placeholderIcon}>👤</span><span className={styles.placeholderText}>Start to meet someone</span></>}
+                    {status === 'requesting'   && <><div className={styles.spinner} /><span className={styles.placeholderText}>Requesting camera...</span></>}
+                    {status === 'waiting'      && <><div className={styles.pulser} /><span className={styles.placeholderText}>Finding a stranger...</span></>}
+                    {status === 'disconnected' && <><span className={styles.placeholderIcon}>👋</span><span className={styles.placeholderText}>Stranger left</span></>}
                   </div>
                 </div>
               )}
@@ -444,19 +516,46 @@ export default function StrangerLinkApp() {
               <span className={styles.videoLabel}>Stranger</span>
             </div>
 
-            {/* PiP Local video */}
+            {/* PiP Local */}
             <div className={styles.videoSlotLocal}>
               <video ref={localVideoRef} autoPlay playsInline muted className={styles.videoLocal} />
               <span className={styles.videoLabel}>You</span>
             </div>
 
-            {/* Interests overlay (idle only) */}
+            {/* 🆕 Floating emoji reactions on video */}
+            {reactions.map(r => (
+              <div
+                key={r.id}
+                className={styles.floatingReaction}
+                style={{ left: `${r.x}%`, bottom: `${r.y}%` }}
+              >
+                {r.emoji}
+              </div>
+            ))}
+
+            {/* 🆕 Reaction bar (during connected) */}
+            {isActive && (
+              <div className={styles.reactionBar}>
+                {REACT_EMOJIS.map(emoji => (
+                  <button
+                    key={emoji}
+                    className={styles.reactionBtn}
+                    onClick={() => sendReaction(emoji)}
+                    title={`React ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Interest card (idle) */}
             {status === 'idle' && (
               <div className={styles.interestOverlay}>
                 <div className={styles.interestCard}>
                   <div>
-                    <h1 className={styles.interestTitle}>Meet a Stranger</h1>
-                    <p className={styles.interestSubtitle}>Anonymous · End-to-end · Ephemeral</p>
+                    <h1 className={styles.interestTitle}>Meet a Stranger 👋</h1>
+                    <p className={styles.interestSubtitle}>Pick interests to find someone like you</p>
                   </div>
                   <div className={styles.interestTags}>
                     {QUICK_TAGS.map(tag => (
@@ -465,33 +564,37 @@ export default function StrangerLinkApp() {
                         className={`${styles.tagChip} ${activeTags.includes(tag) ? styles.tagChipActive : ''}`}
                         onClick={() => toggleTag(tag)}
                       >
-                        {activeTags.includes(tag) ? '✓ ' : '# '}{tag}
+                        {tag}
                       </button>
                     ))}
                   </div>
                   <input
                     type="text"
-                    placeholder="Or type custom interests..."
+                    placeholder="Add custom interests (comma separated)..."
                     value={interests}
                     onChange={e => setInterests(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && startSearching()}
                     className={styles.input}
+                    style={{ borderRadius: 'var(--radius-sm)' }}
                   />
-                  <button className={styles.btnStart} onClick={startSearching}>
-                    ▶ Start Chatting
+                  <button className={styles.btnStart} onClick={startSearching} style={{ justifyContent: 'center', borderRadius: 'var(--radius-sm)' }}>
+                    ▶ &nbsp;Start Chatting
                   </button>
                 </div>
               </div>
             )}
 
+            {/* Disconnected overlay */}
             {status === 'disconnected' && (
               <div className={styles.interestOverlay} style={{ background: 'rgba(7,7,13,0.7)' }}>
                 <div className={styles.interestCard}>
                   <h2 className={styles.interestTitle}>Stranger left 👋</h2>
-                  <p className={styles.interestSubtitle}>Chat ended. Meet someone new?</p>
+                  <p className={styles.interestSubtitle}>
+                    {callTimer > 0 ? `Chat lasted ${formatTime(callTimer)}` : 'Chat ended. Meet someone new?'}
+                  </p>
                   <div style={{ display: 'flex', gap: '10px' }}>
-                    <button className={styles.btnStart} onClick={startSearching} style={{ flex: 1 }}>
-                      ⟳ Next Stranger
+                    <button className={styles.btnStart} onClick={startSearching} style={{ flex: 1, justifyContent: 'center', borderRadius: 'var(--radius-sm)' }}>
+                      ⟳ &nbsp;Next Stranger
                     </button>
                     <button className={styles.btnStop} onClick={stopChat}>
                       ✕ Stop
@@ -501,35 +604,25 @@ export default function StrangerLinkApp() {
               </div>
             )}
 
-            {/* Floating Controls Bar */}
+            {/* Floating controls bar */}
             {(isSearching || isActive) && (
               <div className={styles.controlsBar}>
                 {isActive && (
                   <>
-                    <button className={styles.btnSkip} onClick={skipPartner}>
-                      ⟳ Skip
-                    </button>
+                    <button className={styles.btnSkip} onClick={skipPartner}>⟳ Skip</button>
                     <div className={styles.divider} />
-                    <button
-                      className={`${styles.btnIcon} ${isMuted ? styles.btnIconActive : ''}`}
-                      onClick={toggleMute}
-                      title={isMuted ? 'Unmute mic' : 'Mute mic'}
-                    >
+                    <button className={`${styles.btnIcon} ${isMuted ? styles.btnIconActive : ''}`} onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'}>
                       {isMuted ? '🔇' : '🎙'}
                     </button>
-                    <button
-                      className={`${styles.btnIcon} ${isCamOff ? styles.btnIconActive : ''}`}
-                      onClick={toggleCam}
-                      title={isCamOff ? 'Turn cam on' : 'Turn cam off'}
-                    >
+                    <button className={`${styles.btnIcon} ${isCamOff ? styles.btnIconActive : ''}`} onClick={toggleCam} title={isCamOff ? 'Cam on' : 'Cam off'}>
                       {isCamOff ? '🚫' : '📷'}
                     </button>
                     <div className={styles.divider} />
                   </>
                 )}
                 {isSearching && (
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.08em' }}>
-                    Searching...
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)', letterSpacing: '0.08em' }}>
+                    Finding...
                   </span>
                 )}
                 <button className={styles.btnStop} onClick={stopChat}>
@@ -539,22 +632,31 @@ export default function StrangerLinkApp() {
             )}
           </div>
 
-          {/* RIGHT PANEL: Chat */}
+          {/* ══ RIGHT PANEL: CHAT ════════════════════════════ */}
           <div className={styles.rightPanel}>
+
+            {/* Chat header */}
             <div className={styles.chatHeader}>
               <span className={styles.chatHeaderTitle}>💬 Chat</span>
-              {isActive && msgCount > 0 && (
-                <span className={styles.chatHeaderSub}>{msgCount} messages</span>
+              {/* 🆕 Unread badge */}
+              {unreadCount > 0 && (
+                <span className={styles.unreadBadge}>{unreadCount}</span>
+              )}
+              {isActive && callTimer > 0 && (
+                <span className={styles.chatHeaderSub}>⏱ {formatTime(callTimer)}</span>
               )}
             </div>
 
             <div className={styles.chatArea}>
-              <div className={styles.chatMessages}>
+              <div
+                className={styles.chatMessages}
+                ref={chatScrollRef}
+              >
                 {messages.length === 0 && (
                   <div className={styles.chatEmpty}>
                     <span className={styles.chatEmptyIcon}>{isActive ? '👋' : '💬'}</span>
                     <span className={styles.chatEmptyText}>
-                      {isActive ? 'Say hello to your new stranger' : 'Chat messages will appear here'}
+                      {isActive ? 'Say hello to your stranger!' : 'Chat will appear here'}
                     </span>
                   </div>
                 )}
@@ -570,16 +672,41 @@ export default function StrangerLinkApp() {
                   <div className={`${styles.message} ${styles.them}`}>
                     <span className={styles.msgFrom}>Stranger</span>
                     <span className={styles.msgText}>
-                      <span className={styles.typingDots}>
-                        <span /><span /><span />
-                      </span>
+                      <span className={styles.typingDots}><span /><span /><span /></span>
                     </span>
                   </div>
                 )}
                 <div ref={chatEndRef} />
               </div>
 
+              {/* 🆕 Emoji quick-pick bar */}
+              {isActive && showEmojiBar && (
+                <div className={styles.emojiBar}>
+                  {CHAT_EMOJIS.map(e => (
+                    <button
+                      key={e}
+                      className={styles.emojiBtnChat}
+                      onClick={() => { setInputMsg(prev => prev + e); setShowEmojiBar(false); }}
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Chat input */}
               <div className={styles.chatInput}>
+                {/* 🆕 Emoji toggle */}
+                {isActive && (
+                  <button
+                    className={styles.btnIcon}
+                    onClick={() => setShowEmojiBar(v => !v)}
+                    title="Emoji"
+                    style={{ flexShrink: 0 }}
+                  >
+                    😊
+                  </button>
+                )}
                 <input
                   type="text"
                   placeholder={isActive ? 'Type a message...' : 'Connect to chat...'}
@@ -591,7 +718,7 @@ export default function StrangerLinkApp() {
                 />
                 <button
                   className={styles.btnSend}
-                  onClick={sendMessage}
+                  onClick={() => sendMessage()}
                   disabled={!isActive || !inputMsg.trim()}
                 >
                   Send ↵
@@ -602,7 +729,7 @@ export default function StrangerLinkApp() {
         </main>
 
         <footer className={styles.footer}>
-          Be respectful · 18+ only · Do not share personal information
+          StrangerLink · Be respectful · 18+ only · Do not share personal info
         </footer>
       </div>
     </>
