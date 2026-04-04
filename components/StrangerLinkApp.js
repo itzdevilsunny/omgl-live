@@ -3,36 +3,27 @@ import Head from 'next/head';
 import Pusher from 'pusher-js';
 import styles from '../styles/Home.module.css';
 
+/* ── ICE Config ─────────────────────────────────────────────── */
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
+    { urls: 'turn:openrelay.metered.ca:80',     username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443',    username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ],
 };
+
+const QUICK_TAGS = ['gaming', 'coding', 'music', 'anime', 'movies', 'art', 'sports', 'travel'];
 
 function generateUserId() {
   return 'u-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-export default function Home() {
-  // ── STATE ──────────────────────────────────────────────────────────────────
+/* ── Component ──────────────────────────────────────────────── */
+export default function StrangerLinkApp() {
+  /* STATE */
   const [mounted, setMounted] = useState(false);
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -44,86 +35,70 @@ export default function Home() {
   });
 
   const [status, setStatus] = useState('idle');
+  // idle | requesting | waiting | connected | disconnected
   const [isMuted, setIsMuted] = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
   const [messages, setMessages] = useState([]);
   const [inputMsg, setInputMsg] = useState('');
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [interests, setInterests] = useState('');
-  const [debugInfo, setDebugInfo] = useState('');
+  const [activeTags, setActiveTags] = useState([]);
+  const [debugMsg, setDebugMsg] = useState('');
+  const [msgCount, setMsgCount] = useState(0);
 
-  // ── REFS ───────────────────────────────────────────────────────────────────
-  const statusRef = useRef('idle');
-  const localVideoRef = useRef(null);
+  /* REFS */
+  const statusRef      = useRef('idle');
+  const localVideoRef  = useRef(null);
   const remoteVideoRef = useRef(null);
   const localStreamRef = useRef(null);
-  const remoteStreamRef = useRef(null);   // ✅ FIX: Stable stream ref for ontrack closure
-  const pollingRef = useRef(null);
-  const pendingIceRef = useRef([]);
-  const pcRef = useRef(null);
-  const pusherRef = useRef(null);
-  const partnerIdRef = useRef(null);
-  const roomIdRef = useRef(null);
-  const roomChannelRef = useRef(null);
-  const chatEndRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
-  const userIdRef = useRef(userId);       // ✅ Stable ref for userId in async closures
+  const remoteStreamRef= useRef(null);
+  const pollingRef     = useRef(null);
+  const pendingIceRef  = useRef([]);
+  const pcRef          = useRef(null);
+  const pusherRef      = useRef(null);
+  const partnerIdRef   = useRef(null);
+  const roomIdRef      = useRef(null);
+  const chatEndRef     = useRef(null);
+  const typingTimer    = useRef(null);
+  const userIdRef      = useRef(userId);
 
-  // ── HELPERS ────────────────────────────────────────────────────────────────
-  function updateStatus(s) {
-    statusRef.current = s;
-    setStatus(s);
+  /* ── UTILS ─────────────────────────────────────────────────── */
+  function updateStatus(s) { statusRef.current = s; setStatus(s); }
+  function log(msg) { console.log('[SL]', msg); setDebugMsg(msg); }
+
+  function getInterestsArray() {
+    const manual = interests.split(',').map(i => i.trim()).filter(Boolean);
+    return [...new Set([...activeTags, ...manual])];
   }
 
-  function log(msg) {
-    console.log(`[SL] ${msg}`);
-    setDebugInfo(msg);
-  }
-
-  // ── MEDIA ──────────────────────────────────────────────────────────────────
+  /* ── MEDIA ──────────────────────────────────────────────────── */
   async function getLocalStream() {
     if (localStreamRef.current) return localStreamRef.current;
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true,
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
     localStreamRef.current = stream;
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = stream;
-    }
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     return stream;
   }
 
-  // ── WEBRTC ─────────────────────────────────────────────────────────────────
+  /* ── WEBRTC ─────────────────────────────────────────────────── */
   function createPeerConnection() {
-    // Close any lingering PC first
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
+    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
 
     log('Creating PeerConnection...');
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
-    // ✅ FIX: Create a stable MediaStream ONCE and attach it to the video element.
-    // All incoming tracks get added to this stream. This avoids stale closure bugs
-    // where ontrack fires before remoteVideoRef is assigned.
+    // Stable remote stream — attach once to video element
     const remoteStream = new MediaStream();
     remoteStreamRef.current = remoteStream;
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
-    }
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
 
-    // ✅ FIX: ontrack just adds the track to the stable stream. No .play() calls here
-    // because the video element with autoPlay handles it automatically.
     pc.ontrack = (e) => {
-      log(`ontrack: kind=${e.track.kind} state=${e.track.readyState}`);
-      e.track.onunmute = () => {
-        log(`Track unmuted: ${e.track.kind}`);
-      };
+      log(`Track: ${e.track.kind}`);
       remoteStream.addTrack(e.track);
-      // Force video element to use latest stream (handles re-connections)
       if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStream) {
         remoteVideoRef.current.srcObject = remoteStream;
       }
@@ -134,194 +109,129 @@ export default function Home() {
         fetch('/api/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            targetUserId: partnerIdRef.current,
-            type: 'ice',
-            data: e.candidate,
-            from: userIdRef.current,
-          }),
+          body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'ice', data: e.candidate, from: userIdRef.current }),
         });
       }
     };
 
-    pc.onicegatheringstatechange = () => log(`ICE Gathering: ${pc.iceGatheringState}`);
+    pc.onicegatheringstatechange = () => log(`Gathering: ${pc.iceGatheringState}`);
     pc.oniceconnectionstatechange = () => {
-      log(`ICE Connection: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'failed') {
-        log('ICE failed — attempting restart');
-        pc.restartIce();
-      }
+      log(`ICE: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') { log('ICE failed — restarting'); pc.restartIce(); }
     };
     pc.onconnectionstatechange = () => {
-      log(`PC State: ${pc.connectionState}`);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        handlePartnerLeft();
-      }
+      log(`PC: ${pc.connectionState}`);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') handlePartnerLeft();
     };
 
-    // Add local tracks to the new PC
     const stream = localStreamRef.current;
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream);
-        log(`Added local track: ${track.kind}`);
-      });
-    }
+    if (stream) stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
     return pc;
   }
 
-  async function flushIceCandidates() {
+  async function flushIce() {
     const pc = pcRef.current;
     if (!pc || !pc.remoteDescription) return;
     const queue = [...pendingIceRef.current];
     pendingIceRef.current = [];
-    log(`Flushing ${queue.length} buffered ICE candidates`);
-    for (const c of queue) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
-    }
+    for (const c of queue) try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
   }
 
-  // ── SIGNALING HANDLERS ─────────────────────────────────────────────────────
+  /* ── SIGNALING HANDLERS ────────────────────────────────────── */
   async function handleOffer(offer, fromId) {
-    log(`handleOffer from ${fromId}`);
+    log(`Offer from ${fromId}`);
     partnerIdRef.current = fromId;
     const pc = createPeerConnection();
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    await flushIceCandidates();
+    await flushIce();
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        targetUserId: fromId,
-        type: 'answer',
-        data: answer,
-        from: userIdRef.current,
-      }),
-    });
+    await sig(fromId, 'answer', answer);
     log('Answer sent');
   }
 
   async function handleAnswer(answer) {
-    log('handleAnswer');
+    log('Answer received');
     const pc = pcRef.current;
     if (!pc) return;
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    await flushIceCandidates();
+    await flushIce();
   }
 
   async function handleIce(candidate) {
     const pc = pcRef.current;
-    if (!pc || !pc.remoteDescription) {
-      pendingIceRef.current.push(candidate);
-    } else {
-      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) {}
-    }
+    if (!pc || !pc.remoteDescription) { pendingIceRef.current.push(candidate); }
+    else try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
   }
 
-  // ── CALL FLOW ──────────────────────────────────────────────────────────────
-  //
-  // ✅ FIX: The new call flow eliminates the peer-hello race condition.
-  // 
-  // OLD (broken) flow:
-  //   matched → subscribe room → send peer-hello → wait for peer-hello event → create offer
-  //   PROBLEM: The answerer may not have subscribed to the room yet when peer-hello fires.
-  //
-  // NEW (correct) flow:
-  //   matched → subscribe room → BOTH sides ready
-  //   The INITIATOR directly sends the offer via signal API to the known partnerId.
-  //   The ANSWERER just waits for the offer signal (which already works reliably).
-  //   No more peer-hello coordination needed.
-  //
-  async function startCall(isInitiator, roomId) {
-    log(`startCall: isInitiator=${isInitiator}`);
+  async function sig(targetUserId, type, data) {
+    await fetch('/api/signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUserId, type, data, from: userIdRef.current }),
+    });
+  }
+
+  /* ── CALL FLOW ─────────────────────────────────────────────── */
+  async function startCall(isInitiator) {
+    log(`startCall isInitiator=${isInitiator}`);
     await getLocalStream();
-
     if (isInitiator) {
-      // Brief delay to ensure answerer is subscribed to their signal channel
       await new Promise(r => setTimeout(r, 800));
-
       const pc = createPeerConnection();
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
       log(`Sending offer to ${partnerIdRef.current}`);
-      await fetch('/api/signal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetUserId: partnerIdRef.current,
-          type: 'offer',
-          data: offer,
-          from: userIdRef.current,
-        }),
-      });
+      await sig(partnerIdRef.current, 'offer', offer);
     }
-    // The answerer just listens for the 'signal' event — no action needed here.
   }
 
-  // ── PUSHER SIGNALING ───────────────────────────────────────────────────────
+  /* ── PUSHER ─────────────────────────────────────────────────── */
   function connectSignaling() {
     if (pusherRef.current) return;
-
-    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
-      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
-    });
+    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, { cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER });
     pusherRef.current = pusher;
+    const ch = pusher.subscribe(`user-${userId}`);
 
-    const channel = pusher.subscribe(`user-${userId}`);
-
-    channel.bind('matched', async ({ roomId, isInitiator, partnerId }) => {
-      log(`Matched! roomId=${roomId} isInitiator=${isInitiator}`);
+    ch.bind('matched', async ({ roomId, isInitiator, partnerId }) => {
+      log(`Matched! room=${roomId} init=${isInitiator}`);
       roomIdRef.current = roomId;
+      if (partnerId) partnerIdRef.current = partnerId;
       if (pollingRef.current) clearInterval(pollingRef.current);
       updateStatus('connected');
       setMessages([]);
-      // partnerId comes from the signal event; if not present we derive from roomId
-      if (partnerId) partnerIdRef.current = partnerId;
-      await startCall(isInitiator, roomId);
+      setMsgCount(0);
+      await startCall(isInitiator);
     });
 
-    channel.bind('signal', async ({ type, data, from }) => {
-      // Always keep track of who our partner is
+    ch.bind('signal', async ({ type, data, from }) => {
       if (from && !partnerIdRef.current) partnerIdRef.current = from;
-
-      if (type === 'offer') await handleOffer(data, from);
-      else if (type === 'answer') await handleAnswer(data);
-      else if (type === 'ice') await handleIce(data);
-      else if (type === 'chat') {
-        if (statusRef.current === 'connected') {
-          setMessages(m => [...m, { from: 'them', text: data.text }]);
-          setPartnerTyping(false);
-        }
+      if (type === 'offer')        await handleOffer(data, from);
+      else if (type === 'answer')  await handleAnswer(data);
+      else if (type === 'ice')     await handleIce(data);
+      else if (type === 'chat' && statusRef.current === 'connected') {
+        setMessages(m => [...m, { from: 'them', text: data.text }]);
+        setMsgCount(n => n + 1);
+        setPartnerTyping(false);
       }
-      else if (type === 'typing') setPartnerTyping(true);
-      else if (type === 'stop-typing') setPartnerTyping(false);
+      else if (type === 'typing')       setPartnerTyping(true);
+      else if (type === 'stop-typing')  setPartnerTyping(false);
     });
 
-    channel.bind('partner-left', () => handlePartnerLeft());
-    channel.bind('kicked', ({ message }) => {
-      alert(message || 'You have been disconnected.');
-      window.location.reload();
-    });
+    ch.bind('partner-left', () => handlePartnerLeft());
+    ch.bind('kicked', ({ message }) => { alert(message || 'Disconnected by admin.'); window.location.reload(); });
   }
 
   function disconnectSignaling() {
-    if (pusherRef.current) {
-      pusherRef.current.disconnect();
-      pusherRef.current = null;
-    }
+    if (pusherRef.current) { pusherRef.current.disconnect(); pusherRef.current = null; }
   }
 
-  // ── ACTIONS ────────────────────────────────────────────────────────────────
+  /* ── ACTIONS ────────────────────────────────────────────────── */
   function handlePartnerLeft() {
     log('Partner left');
     updateStatus('disconnected');
-    setMessages(m => [...m, { from: 'system', text: 'Stranger has disconnected.' }]);
+    setMessages(m => [...m, { from: 'system', text: 'Stranger has left the chat.' }]);
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     remoteStreamRef.current = null;
     pcRef.current?.close();
@@ -334,31 +244,23 @@ export default function Home() {
     if (statusRef.current === 'requesting' || statusRef.current === 'waiting') return;
     updateStatus('requesting');
     setMessages([]);
-    try {
-      await getLocalStream();
-    } catch (e) {
-      alert('Camera and microphone access required.');
-      updateStatus('idle');
-      return;
+    try { await getLocalStream(); } catch {
+      alert('Camera and microphone required. Please allow access and try again.');
+      updateStatus('idle'); return;
     }
     connectSignaling();
     updateStatus('waiting');
-    // Clear any old partnerId
     partnerIdRef.current = null;
     pendingIceRef.current = [];
 
-    // Poll for match
     async function doJoin() {
       try {
         await fetch('/api/join', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId,
-            interests: interests.split(',').map(i => i.trim()).filter(Boolean),
-          }),
+          body: JSON.stringify({ userId, interests: getInterestsArray() }),
         });
-      } catch (e) {}
+      } catch {}
     }
     doJoin();
     pollingRef.current = setInterval(() => {
@@ -369,33 +271,17 @@ export default function Home() {
 
   async function skipPartner() {
     if (partnerIdRef.current) {
-      fetch('/api/leave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partnerId: partnerIdRef.current, userId }),
-      }).catch(() => {});
+      fetch('/api/leave', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ partnerId: partnerIdRef.current, userId }) }).catch(() => {});
     }
-    // Clean up current call
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     remoteStreamRef.current = null;
-    pcRef.current?.close();
-    pcRef.current = null;
+    pcRef.current?.close(); pcRef.current = null;
     partnerIdRef.current = null;
     pendingIceRef.current = [];
     setMessages([]);
-    // Start searching again
     updateStatus('waiting');
     async function doJoin() {
-      try {
-        await fetch('/api/join', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId,
-            interests: interests.split(',').map(i => i.trim()).filter(Boolean),
-          }),
-        });
-      } catch (e) {}
+      try { await fetch('/api/join', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ userId, interests: getInterestsArray() }) }); } catch {}
     }
     doJoin();
     pollingRef.current = setInterval(() => {
@@ -406,17 +292,9 @@ export default function Home() {
 
   async function stopChat() {
     if (pollingRef.current) clearInterval(pollingRef.current);
-    if (partnerIdRef.current) {
-      fetch('/api/leave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partnerId: partnerIdRef.current, userId }),
-      }).catch(() => {});
-    }
-    pcRef.current?.close();
-    pcRef.current = null;
-    partnerIdRef.current = null;
-    pendingIceRef.current = [];
+    if (partnerIdRef.current) fetch('/api/leave', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ partnerId: partnerIdRef.current, userId }) }).catch(() => {});
+    pcRef.current?.close(); pcRef.current = null;
+    partnerIdRef.current = null; pendingIceRef.current = [];
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -424,18 +302,16 @@ export default function Home() {
     remoteStreamRef.current = null;
     disconnectSignaling();
     updateStatus('idle');
-    setMessages([]);
-    setDebugInfo('');
+    setMessages([]); setDebugMsg(''); setMsgCount(0);
   }
 
   function toggleMute() {
-    const audio = localStreamRef.current?.getAudioTracks()[0];
-    if (audio) { audio.enabled = !audio.enabled; setIsMuted(!audio.enabled); }
+    const tr = localStreamRef.current?.getAudioTracks()[0];
+    if (tr) { tr.enabled = !tr.enabled; setIsMuted(!tr.enabled); }
   }
-
   function toggleCam() {
-    const video = localStreamRef.current?.getVideoTracks()[0];
-    if (video) { video.enabled = !video.enabled; setIsCamOff(!video.enabled); }
+    const tr = localStreamRef.current?.getVideoTracks()[0];
+    if (tr) { tr.enabled = !tr.enabled; setIsCamOff(!tr.enabled); }
   }
 
   async function sendMessage() {
@@ -443,225 +319,290 @@ export default function Home() {
     const text = inputMsg.trim();
     setInputMsg('');
     setMessages(m => [...m, { from: 'me', text }]);
-    await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'chat', data: { text }, from: userId }),
-    });
+    await sig(partnerIdRef.current, 'chat', { text });
   }
 
-  async function handleTypingInput(val) {
+  function handleTypingInput(val) {
     setInputMsg(val);
     if (!partnerIdRef.current) return;
-    fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'typing', data: {}, from: userId }),
-    });
-    clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      fetch('/api/signal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetUserId: partnerIdRef.current, type: 'stop-typing', data: {}, from: userId }),
-      });
-    }, 1500);
+    sig(partnerIdRef.current, 'typing', {});
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => sig(partnerIdRef.current, 'stop-typing', {}), 1500);
   }
 
-  // ── EFFECTS ────────────────────────────────────────────────────────────────
+  function toggleTag(tag) {
+    setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
+  }
+
+  /* ── EFFECTS ────────────────────────────────────────────────── */
   useEffect(() => {
     setMounted(true);
-    return () => {
-      // Cleanup on unmount
-      if (statusRef.current !== 'idle') stopChat();
-    };
+    return () => { if (statusRef.current !== 'idle') stopChat(); };
   }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  if (!mounted) return <div style={{ background: '#0a0a0c', height: '100vh' }} />;
+  if (!mounted) return <div style={{ background: '#07070d', height: '100vh' }} />;
 
-  // ── RENDER ─────────────────────────────────────────────────────────────────
+  const isActive = status === 'connected';
+  const isSearching = status === 'waiting' || status === 'requesting';
+
+  /* ── RENDER ─────────────────────────────────────────────────── */
   return (
     <>
       <Head>
         <title>StrangerLink — Meet Someone New</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="description" content="Connect with random strangers via video chat. Ephemeral, anonymous, global." />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>◈</text></svg>" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
       </Head>
+
       <div className={styles.container}>
+        {/* ── HEADER ─────────────────────────────────────────── */}
         <header className={styles.header}>
           <div className={styles.logo}>
             <span className={styles.logoMark}>◈</span>
             <span className={styles.logoText}>StrangerLink</span>
           </div>
-          <div className={styles.tagline}>EPHEMERAL CONNECTIONS // GLOBAL</div>
+          <div className={styles.tagline}>EPHEMERAL · ANONYMOUS · GLOBAL</div>
           <div className={styles.liveBadge}>
             <div className={styles.livePulse} />
             <span className={styles.liveCount}>LIVE</span>
           </div>
         </header>
 
+        {/* ── MAIN ───────────────────────────────────────────── */}
         <main className={styles.main}>
-          {/* ── VIDEO AREA ─────────────────────────────────────── */}
+
+          {/* LEFT: VIDEO AREA */}
           <div className={styles.videoArea}>
-            {/* Remote */}
-            <div className={`${styles.videoSlot} ${styles.remote}`}>
-              {/* 
-                ✅ FIX: Video element is always rendered and always muted.
-                The srcObject is managed imperatively via refs, not React props.
-                This prevents React from clearing srcObject on re-renders.
-                We never unmute via onLoadedMetadata — browser handles autoplay.
-              */}
+            {/* Remote video */}
+            <div className={styles.videoSlotRemote}>
               <video
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
                 muted
-                className={styles.video}
+                className={styles.videoRemote}
               />
-              {status !== 'connected' && (
-                <div className={styles.videoPlaceholder}>
-                  <div className={styles.placeholderContent}>
-                    {status === 'idle' && <><span className={styles.placeholderIcon}>👤</span><p>Stranger</p></>}
-                    {status === 'requesting' && <><div className={styles.spinner} /><p>Getting camera...</p></>}
-                    {status === 'waiting' && <><div className={styles.pulser} /><p>Finding someone...</p></>}
-                    {status === 'disconnected' && <><span className={styles.placeholderIcon}>👋</span><p>Disconnected</p></>}
-                  </div>
-                </div>
-              )}
-              {/* Debug HUD */}
-              {debugInfo && (
-                <div style={{
-                  position: 'absolute', bottom: 5, left: 5, right: 5,
-                  background: 'rgba(0,0,0,0.7)', color: '#0f0', fontFamily: 'monospace',
-                  fontSize: '10px', padding: '3px 6px', borderRadius: '4px', zIndex: 20,
-                  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                }}>
-                  {debugInfo}
-                </div>
-              )}
-              <div className={styles.videoLabel}>Stranger</div>
-            </div>
 
-            {/* Local */}
-            <div className={`${styles.videoSlot} ${styles.local}`}>
-              <video ref={localVideoRef} autoPlay playsInline muted className={styles.video} />
-              {status === 'idle' && (
-                <div className={styles.videoPlaceholder}>
-                  <div className={styles.placeholderContent}>
-                    <span className={styles.placeholderIcon}>🎥</span><p>You</p>
-                  </div>
-                </div>
-              )}
-              <div className={styles.videoLabel}>You</div>
-            </div>
-          </div>
+              {/* Vignette overlay */}
+              <div className={styles.videoVignette} />
 
-          {/* ── CONTROLS ───────────────────────────────────────── */}
-          <div className={styles.controls}>
-            {status === 'idle' && (
-              <div style={{ width: '100%', marginBottom: '10px' }}>
-                <input
-                  type="text"
-                  placeholder="Add interests (e.g. coding, anime)"
-                  value={interests}
-                  onChange={e => setInterests(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && startSearching()}
-                  className={styles.input}
-                  style={{ width: '100%', marginBottom: '5px' }}
-                />
-                <p style={{ color: '#888', fontSize: '11px', fontStyle: 'italic' }}>Separate with commas</p>
-              </div>
-            )}
-
-            {(status === 'idle' || status === 'disconnected') && (
-              <button className={`${styles.btn} ${styles.btnStart}`} onClick={startSearching}>
-                {status === 'disconnected' ? '⟳ Next' : '▶ Start'}
-              </button>
-            )}
-
-            {(status === 'waiting' || status === 'requesting') && (
-              <button className={`${styles.btn} ${styles.btnStop}`} onClick={stopChat}>
-                ✕ Cancel
-              </button>
-            )}
-
-            {status === 'connected' && (
-              <>
-                <button className={`${styles.btn} ${styles.btnSkip}`} onClick={skipPartner}>⟳ Skip</button>
-                <button
-                  className={`${styles.btn} ${styles.btnIcon} ${isMuted ? styles.active : ''}`}
-                  onClick={toggleMute}
-                  title={isMuted ? 'Unmute' : 'Mute'}
-                >
-                  {isMuted ? '🔇' : '🎙'}
-                </button>
-                <button
-                  className={`${styles.btn} ${styles.btnIcon} ${isCamOff ? styles.active : ''}`}
-                  onClick={toggleCam}
-                  title={isCamOff ? 'Turn cam on' : 'Turn cam off'}
-                >
-                  {isCamOff ? '🚫' : '📷'}
-                </button>
-                <button className={`${styles.btn} ${styles.btnStop}`} onClick={stopChat}>✕ Stop</button>
-              </>
-            )}
-          </div>
-
-          {/* ── CHAT ───────────────────────────────────────────── */}
-          <div className={styles.chatArea}>
-            <div className={styles.chatMessages}>
-              {messages.length === 0 && (
-                <div className={styles.chatEmpty}>
-                  {status === 'connected' ? 'Say hello 👋' : 'Chat will appear here'}
-                </div>
-              )}
-              {messages.map((m, i) => (
-                <div key={i} className={`${styles.message} ${styles[m.from]}`}>
-                  {m.from !== 'system' && (
-                    <span className={styles.msgFrom}>{m.from === 'me' ? 'You' : 'Stranger'}</span>
-                  )}
-                  <span className={styles.msgText}>{m.text}</span>
-                </div>
-              ))}
-              {partnerTyping && (
-                <div className={`${styles.message} ${styles.them}`}>
-                  <span className={styles.msgFrom}>Stranger</span>
-                  <span className={styles.msgText}>
-                    <span className={styles.typingDots}><span /><span /><span /></span>
+              {/* Status indicator */}
+              {status !== 'idle' && (
+                <div className={styles.connectionStatus}>
+                  <div className={`${styles.connectionDot} ${isSearching ? styles.connectionDotWaiting : ''}`} />
+                  <span className={styles.connectionLabel}>
+                    {isSearching ? 'SEARCHING...' : isActive ? 'CONNECTED' : 'DISCONNECTED'}
                   </span>
                 </div>
               )}
-              <div ref={chatEndRef} />
+
+              {/* Debug HUD */}
+              {debugMsg && isActive && (
+                <div className={styles.debugHud}>{debugMsg}</div>
+              )}
+
+              {/* Placeholder for remote */}
+              {status !== 'connected' && (
+                <div className={styles.videoPlaceholder}>
+                  <div className={styles.placeholderContent}>
+                    {status === 'idle' && (
+                      <>
+                        <span className={styles.placeholderIcon}>👤</span>
+                        <span className={styles.placeholderText}>Start to meet someone</span>
+                      </>
+                    )}
+                    {status === 'requesting' && (
+                      <>
+                        <div className={styles.spinner} />
+                        <span className={styles.placeholderText}>Requesting camera...</span>
+                      </>
+                    )}
+                    {status === 'waiting' && (
+                      <>
+                        <div className={styles.pulser} />
+                        <span className={styles.placeholderText}>Finding a stranger...</span>
+                      </>
+                    )}
+                    {status === 'disconnected' && (
+                      <>
+                        <span className={styles.placeholderIcon}>👋</span>
+                        <span className={styles.placeholderText}>Stranger left. Start again?</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <span className={styles.videoLabel}>Stranger</span>
             </div>
-            <div className={styles.chatInput}>
-              <input
-                type="text"
-                placeholder={status === 'connected' ? 'Type a message...' : 'Connect to chat'}
-                value={inputMsg}
-                disabled={status !== 'connected'}
-                onChange={e => handleTypingInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                className={styles.input}
-              />
-              <button
-                className={`${styles.btn} ${styles.btnSend}`}
-                onClick={sendMessage}
-                disabled={status !== 'connected' || !inputMsg.trim()}
-              >
-                Send
-              </button>
+
+            {/* PiP Local video */}
+            <div className={styles.videoSlotLocal}>
+              <video ref={localVideoRef} autoPlay playsInline muted className={styles.videoLocal} />
+              <span className={styles.videoLabel}>You</span>
+            </div>
+
+            {/* Interests overlay (idle only) */}
+            {status === 'idle' && (
+              <div className={styles.interestOverlay}>
+                <div className={styles.interestCard}>
+                  <div>
+                    <h1 className={styles.interestTitle}>Meet a Stranger</h1>
+                    <p className={styles.interestSubtitle}>Anonymous · End-to-end · Ephemeral</p>
+                  </div>
+                  <div className={styles.interestTags}>
+                    {QUICK_TAGS.map(tag => (
+                      <button
+                        key={tag}
+                        className={`${styles.tagChip} ${activeTags.includes(tag) ? styles.tagChipActive : ''}`}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {activeTags.includes(tag) ? '✓ ' : '# '}{tag}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Or type custom interests..."
+                    value={interests}
+                    onChange={e => setInterests(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && startSearching()}
+                    className={styles.input}
+                  />
+                  <button className={styles.btnStart} onClick={startSearching}>
+                    ▶ Start Chatting
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {status === 'disconnected' && (
+              <div className={styles.interestOverlay} style={{ background: 'rgba(7,7,13,0.7)' }}>
+                <div className={styles.interestCard}>
+                  <h2 className={styles.interestTitle}>Stranger left 👋</h2>
+                  <p className={styles.interestSubtitle}>Chat ended. Meet someone new?</p>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className={styles.btnStart} onClick={startSearching} style={{ flex: 1 }}>
+                      ⟳ Next Stranger
+                    </button>
+                    <button className={styles.btnStop} onClick={stopChat}>
+                      ✕ Stop
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Floating Controls Bar */}
+            {(isSearching || isActive) && (
+              <div className={styles.controlsBar}>
+                {isActive && (
+                  <>
+                    <button className={styles.btnSkip} onClick={skipPartner}>
+                      ⟳ Skip
+                    </button>
+                    <div className={styles.divider} />
+                    <button
+                      className={`${styles.btnIcon} ${isMuted ? styles.btnIconActive : ''}`}
+                      onClick={toggleMute}
+                      title={isMuted ? 'Unmute mic' : 'Mute mic'}
+                    >
+                      {isMuted ? '🔇' : '🎙'}
+                    </button>
+                    <button
+                      className={`${styles.btnIcon} ${isCamOff ? styles.btnIconActive : ''}`}
+                      onClick={toggleCam}
+                      title={isCamOff ? 'Turn cam on' : 'Turn cam off'}
+                    >
+                      {isCamOff ? '🚫' : '📷'}
+                    </button>
+                    <div className={styles.divider} />
+                  </>
+                )}
+                {isSearching && (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.08em' }}>
+                    Searching...
+                  </span>
+                )}
+                <button className={styles.btnStop} onClick={stopChat}>
+                  ✕ {isSearching ? 'Cancel' : 'Stop'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT PANEL: Chat */}
+          <div className={styles.rightPanel}>
+            <div className={styles.chatHeader}>
+              <span className={styles.chatHeaderTitle}>💬 Chat</span>
+              {isActive && msgCount > 0 && (
+                <span className={styles.chatHeaderSub}>{msgCount} messages</span>
+              )}
+            </div>
+
+            <div className={styles.chatArea}>
+              <div className={styles.chatMessages}>
+                {messages.length === 0 && (
+                  <div className={styles.chatEmpty}>
+                    <span className={styles.chatEmptyIcon}>{isActive ? '👋' : '💬'}</span>
+                    <span className={styles.chatEmptyText}>
+                      {isActive ? 'Say hello to your new stranger' : 'Chat messages will appear here'}
+                    </span>
+                  </div>
+                )}
+                {messages.map((m, i) => (
+                  <div key={i} className={`${styles.message} ${styles[m.from]}`}>
+                    {m.from !== 'system' && (
+                      <span className={styles.msgFrom}>{m.from === 'me' ? 'You' : 'Stranger'}</span>
+                    )}
+                    <span className={styles.msgText}>{m.text}</span>
+                  </div>
+                ))}
+                {partnerTyping && (
+                  <div className={`${styles.message} ${styles.them}`}>
+                    <span className={styles.msgFrom}>Stranger</span>
+                    <span className={styles.msgText}>
+                      <span className={styles.typingDots}>
+                        <span /><span /><span />
+                      </span>
+                    </span>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              <div className={styles.chatInput}>
+                <input
+                  type="text"
+                  placeholder={isActive ? 'Type a message...' : 'Connect to chat...'}
+                  value={inputMsg}
+                  disabled={!isActive}
+                  onChange={e => handleTypingInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                  className={styles.input}
+                />
+                <button
+                  className={styles.btnSend}
+                  onClick={sendMessage}
+                  disabled={!isActive || !inputMsg.trim()}
+                >
+                  Send ↵
+                </button>
+              </div>
             </div>
           </div>
         </main>
 
         <footer className={styles.footer}>
-          <p>Be respectful. 18+ only. Do not share personal info.</p>
+          Be respectful · 18+ only · Do not share personal information
         </footer>
       </div>
     </>
