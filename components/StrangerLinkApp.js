@@ -1136,7 +1136,14 @@ export default function StrangerLinkApp() {
               }
             }}>
               <video ref={remoteVideoRef} autoPlay playsInline className={styles.videoRemote} />
-              <span className={styles.videoLabel}>Partner</span>
+              <div className={styles.videoLabel}>
+                Partner
+                {isActive && (
+                  <div className={styles.soundWave}>
+                    <span /><span /><span /><span />
+                  </div>
+                )}
+              </div>
               <div className={`${styles.holographicGlow} ${isActive ? styles.holographicGlowActive : ''}`} />
               {!isActive && (
                 <div className={styles.videoOverlay}>
@@ -1144,7 +1151,7 @@ export default function StrangerLinkApp() {
                     <div className={styles.searchingState}>
                       <div className={styles.holographicBeam} />
                       <div className={styles.spinner} />
-                      <p className={styles.searchingText}>Establishing Link...</p>
+                      <p className={styles.searchingText}>Establishing Quantum Link...</p>
                       <div className={styles.skeletonPulse} />
                     </div>
                   ) : (
@@ -1432,7 +1439,13 @@ export default function StrangerLinkApp() {
                   </div>
                 )}
                 {messages.map((m, i) => (
-                  <div key={i} className={`${styles.message} ${styles[m.from]}`}>
+                  <motion.div
+                    key={m.id || i}
+                    initial={{ opacity: 0, y: 15, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ type: 'spring', damping: 20, stiffness: 400 }}
+                    className={`${styles.message} ${styles[m.from]}`}
+                  >
                     {m.from !== 'system' && (
                       <span className={styles.msgFrom}>
                         {m.from === 'me' ? 'You' : `Stranger ${partnerCountry ? getFlagEmoji(partnerCountry) : ''}`}
@@ -1446,15 +1459,23 @@ export default function StrangerLinkApp() {
                         </span>
                       )}
                     </span>
-                  </div>
+                  </motion.div>
                 ))}
                 {partnerTyping && (
-                  <div className={`${styles.message} ${styles.them}`}>
-                    <span className={styles.msgFrom}>Stranger</span>
-                    <span className={styles.msgText}>
-                      <span className={styles.typingDots}><span /><span /><span /></span>
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className={`${styles.message} ${styles.them}`}
+                  >
+                    <span className={styles.msgFrom}>Stranger is typing...</span>
+                    <span className={styles.msgText} style={{ padding: '4px 8px' }}>
+                      <div className={styles.typingIndicator}>
+                        <div className={styles.typingDot} />
+                        <div className={styles.typingDot} />
+                        <div className={styles.typingDot} />
+                      </div>
                     </span>
-                  </div>
+                  </motion.div>
                 )}
                 <div ref={chatEndRef} />
               </div>
