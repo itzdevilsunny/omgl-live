@@ -24,7 +24,7 @@ export default async function handler(req) {
     const waitingCount = await redis.scard('waiting_users');
     
     // Get all users who were active in the last 5 minutes
-    const activeUsers = await redis.zcount('global_activity', activeThreshold, now);
+    const users = await redis.zrange('global_activity', activeThreshold, now, { byScore: true, rev: true, limit: { offset: 0, count: 50 } });
 
     // Clean up old activity entries (maintain sanity)
     await redis.zremrangebyscore('global_activity', 0, activeThreshold - (60 * 60 * 1000)); // 1 hour ago
@@ -34,7 +34,8 @@ export default async function handler(req) {
 
     return new Response(JSON.stringify({
       waitingCount,
-      activeUsers,
+      activeUsers: users.length,
+      users,
       trendingTags,
       timestamp: now,
     }), {
