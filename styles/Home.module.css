@@ -1144,6 +1144,12 @@
   text-align: left;
 }
 
+.heroSection {
+  text-align: left;
+  max-width: 600px;
+  z-index: 10;
+}
+
 .heroTitle {
   font-family: var(--font-display);
   font-size: 52px;
@@ -1151,6 +1157,15 @@
   margin-bottom: 20px;
   color: var(--text);
   font-weight: 800;
+}
+
+.gradientText {
+  background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 6s ease-in-out infinite;
 }
 
 .textGradient {
@@ -1214,6 +1229,20 @@
   box-shadow: 0 20px 50px rgba(0,0,0,0.3);
   position: relative;
   overflow: hidden;
+  z-index: 10;
+}
+
+.idleView {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 40px;
+  background: radial-gradient(circle at center, rgba(124,106,255,0.05) 0%, transparent 70%);
+  z-index: 60;
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
 }
 
 /* ── SKELETON & SPINNER ───────────────────────────────────────── */

@@ -484,6 +484,13 @@ export default function StrangerLinkApp() {
       alert('Camera and microphone access required. Please allow and try again.');
       updateStatus('idle'); return;
     }
+    if (!pusherRef.current) {
+      console.error('[SL] Cannot search: Signaling client missing. Check your NEXT_PUBLIC_PUSHER_KEY.');
+      alert('Signaling error: Connection could not be established. Please refresh or contact admin.');
+      updateStatus('idle');
+      return;
+    }
+
     connectSignaling();
     updateStatus('waiting');
     partnerIdRef.current = null;
@@ -602,7 +609,19 @@ export default function StrangerLinkApp() {
     // Listen for device changes (plug/unplug)
     navigator.mediaDevices.ondevicechange = refreshDevices;
 
-    // Load saved theme
+    // Initial stats fetch
+    async function getInitialStats() {
+      try {
+        const res = await fetch('/api/admin-stats');
+        const data = await res.json();
+        if (data.onlineCount !== undefined) setOnlineCount(data.onlineCount);
+      } catch (err) {
+        console.error('[SL] Initial stats fetch failed:', err);
+      }
+    }
+    getInitialStats();
+
+    // Theme initialization
     try {
       const saved = localStorage.getItem('sl-theme') || 'dark';
       setTheme(saved);
@@ -610,12 +629,23 @@ export default function StrangerLinkApp() {
     } catch { document.documentElement.setAttribute('data-theme', 'dark'); }
 
     // Initialize Pusher on mount
-    if (!pusherRef.current && process.env.NEXT_PUBLIC_PUSHER_KEY) {
-      log('Initializing P2P Signaling...');
-      pusherRef.current = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
-        cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'mt1',
-        forceTLS: true
-      });
+    if (!pusherRef.current) {
+      const key = process.env.NEXT_PUBLIC_PUSHER_KEY;
+      const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'mt1';
+      
+      if (!key) {
+        console.warn('[SL] Pusher Key missing! Matchmaking will NOT work. Please check Vercel Environment Variables.');
+      } else {
+        log('Initializing P2P Signaling...');
+        pusherRef.current = new Pusher(key, {
+          cluster,
+          forceTLS: true
+        });
+
+        pusherRef.current.connection.bind('error', (err) => {
+          console.error('[SL] Pusher Connection Error:', err);
+        });
+      }
     }
 
     return () => {
@@ -731,6 +761,78 @@ export default function StrangerLinkApp() {
 
           {/* ══ LEFT: VIDEO AREA ══════════════════════════════ */}
           <div className={styles.videoArea}>
+
+            {/* 🆕 Hero Landing Overlay — Moved to top for z-index reliability */}
+            {status === 'idle' && (
+              <div className={styles.idleView}>
+                <div className={styles.heroSection}>
+                   <h1 className={styles.heroTitle}>
+                    Meet Strangers <br/>
+                    <span className={styles.gradientText}>Instantly.</span>
+                  </h1>
+                  <p className={styles.heroSubtitle}>
+                    High-fidelity, ephemeral video discovery. 
+                    No registration. No tracking. Pure human connection.
+                  </p>
+                  
+                  <div className={styles.featuresGrid}>
+                    <div className={styles.featureItem}>
+                      <div className={styles.featureIcon}>⚡</div>
+                      <div>
+                        <div className={styles.featureName}>P2P Precision</div>
+                        <div className={styles.featureDesc}>Ultra-low latency signaling for instant response.</div>
+                      </div>
+                    </div>
+                    <div className={styles.featureItem}>
+                      <div className={styles.featureIcon}>🛡️</div>
+                      <div>
+                        <div className={styles.featureName}>End-to-End Secure</div>
+                        <div className={styles.featureDesc}>Ephemeral sessions with zero logs.</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.searchCard}>
+                  <div className={styles.holographicBeam} />
+                  <div className={styles.holographicGlow + ' ' + (interest.length > 0 ? styles.holographicGlowActive : '')} />
+                  
+                  <h3 className={styles.interestTitle}>Discovery Filters</h3>
+                  <p className={styles.interestSubtitle}>Add tags to find people with shared vibes</p>
+                  
+                  <div className={styles.interestWrapper} style={{ marginBottom: '24px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Add an interest (e.g. music, tech)..." 
+                      className={styles.interestInput}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.target.value.trim()) {
+                          addInterest(e.target.value.trim());
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                    <div className={styles.interestTags}>
+                      {interest.map(tag => (
+                        <span key={tag} className={styles.tagChip + ' ' + styles.tagChipActive} onClick={() => removeInterest(tag)}>
+                          {tag} ✕
+                        </span>
+                      ))}
+                      {interest.length === 0 && <span style={{ fontSize: '12px', opacity: 0.4 }}>No tags added yet...</span>}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <button className={styles.btnStart} onClick={startSearching} style={{ justifyContent: 'center', borderRadius: 'var(--radius-sm)' }}>
+                      ▶ &nbsp;Start Chatting
+                    </button>
+                    <p style={{ fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                      By clicking start, you agree to our Terms & Privacy Policy.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Remote */}
             <div className={styles.videoSlotRemote}>
