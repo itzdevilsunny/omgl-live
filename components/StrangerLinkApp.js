@@ -32,6 +32,19 @@ function formatTime(sec) {
   return `${m}:${s}`;
 }
 
+function getFlagEmoji(countryCode) {
+  if (!countryCode || countryCode === 'UN') return '🌐';
+  const codePoints = countryCode
+    .toUpperCase()
+    .split('')
+    .map(char => 127397 + char.charCodeAt(0));
+  try {
+    return String.fromCodePoint(...codePoints);
+  } catch {
+    return '🌐';
+  }
+}
+
 /* ── Component ─────────────────────────────────────────────── */
 export default function StrangerLinkApp() {
   /* ── STATE ─────────────────────────────────────────────────── */
@@ -58,6 +71,7 @@ export default function StrangerLinkApp() {
   const [selectedVideo, setSelectedVideo] = useState('');    // 🆕 chosen cameraId
   const [selectedAudio, setSelectedAudio] = useState('');    // 🆕 chosen micId
   const [onlineCount,   setOnlineCount]   = useState(0);     // 🆕 total users
+  const [partnerCountry, setPartnerCountry] = useState(null); // 🆕 partner's location
   const [trendingTags,  setTrendingTags]  = useState([]);    // 🆕 popular interests
   const [connType,      setConnType]      = useState('Direct'); // P2P or Relay
   const [soundEnabled,  setSoundEnabled]  = useState(true);     // sound toggle
@@ -636,15 +650,17 @@ export default function StrangerLinkApp() {
     ch.bind('pusher:subscription_succeeded', () => setPusherStatus('connected'));
     ch.bind('pusher:subscription_error', () => setPusherStatus('error'));
 
-    ch.bind('matched', async ({ roomId, isInitiator, partnerId, matchedTag }) => {
-      log(`Matched! room=${roomId} init=${isInitiator} tag=${matchedTag}`);
+    ch.bind('matched', async ({ roomId, isInitiator, partnerId, matchedTag, partnerCountry: pCountry }) => {
+      log(`Matched! room=${roomId} init=${isInitiator} tag=${matchedTag} country=${pCountry}`);
       roomIdRef.current = roomId;
       if (partnerId) partnerIdRef.current = partnerId;
       if (pollingRef.current) clearInterval(pollingRef.current);
       playBeep('match');
       if (matchedTag) setSharedTag(matchedTag);
+      if (pCountry) setPartnerCountry(pCountry);
       updateStatus('connected');
-      setMessages([{ from: 'system', text: `🔗 Connected! ${matchedTag ? `Matched on #${matchedTag}` : 'Found a stranger.'}` }]);
+      const flag = getFlagEmoji(pCountry);
+      setMessages([{ from: 'system', text: `🔗 Connected! ${flag} ${matchedTag ? `Matched on #${matchedTag}` : 'Found a stranger.'}` }]);
       setUnreadCount(0);
       await startCall(isInitiator);
     });
@@ -753,6 +769,7 @@ export default function StrangerLinkApp() {
     setMessages([]);
     setUnreadCount(0);
     setReactions([]);
+    setPartnerCountry(null);
     updateStatus('waiting');
 
     async function doJoin() {
@@ -778,7 +795,7 @@ export default function StrangerLinkApp() {
     remoteStreamRef.current = null;
     disconnectSignaling();
     updateStatus('idle');
-    setMessages([]); setDebugMsg(''); setUnreadCount(0); setReactions([]); setSharedTag('');
+    setMessages([]); setDebugMsg(''); setUnreadCount(0); setReactions([]); setSharedTag(''); setPartnerCountry(null);
   }
 
   /* ── REPORTING ─────────────────────────────────────────────── */
@@ -1374,7 +1391,7 @@ export default function StrangerLinkApp() {
 
             {/* Chat header */}
             <div className={styles.chatHeader}>
-              <span className={styles.chatHeaderTitle}>💬 Chat</span>
+              <span className={styles.chatHeaderTitle}>💬 Chat {partnerCountry && `(${getFlagEmoji(partnerCountry)})`}</span>
               {/* 🆕 Unread badge */}
               {unreadCount > 0 && (
                 <span className={styles.unreadBadge}>{unreadCount}</span>
@@ -1397,7 +1414,9 @@ export default function StrangerLinkApp() {
                 {messages.map((m, i) => (
                   <div key={i} className={`${styles.message} ${styles[m.from]}`}>
                     {m.from !== 'system' && (
-                      <span className={styles.msgFrom}>{m.from === 'me' ? 'You' : 'Stranger'}</span>
+                      <span className={styles.msgFrom}>
+                        {m.from === 'me' ? 'You' : `Stranger ${partnerCountry ? getFlagEmoji(partnerCountry) : ''}`}
+                      </span>
                     )}
                     <span className={styles.msgText}>
                       {m.text}

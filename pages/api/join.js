@@ -35,11 +35,15 @@ export default async function handler(req, res) {
     const safeAge = age || 'any';
     const safeQual = qual || 'any';
 
-    // 1. Update Global Heartbeat & Language Config
+    // 🌐 Detect Country (Vercel header or fallback)
+    const country = req.headers['x-vercel-ip-country'] || 'US'; 
+
+    // 1. Update Global Heartbeat, Language & Country Config
     await redis.zadd('active_queue', { score: now, member: userId });
     if (language) {
       await redis.set(`lang:${userId}`, language, { ex: 3600 }); // cache for 1 hour
     }
+    await redis.set(`country:${userId}`, country, { ex: 3600 }); // cache country
     
     // Fetch stats
     const trending = await redis.zrange('trending_tags', 0, 11, { rev: true });
@@ -55,14 +59,17 @@ export default async function handler(req, res) {
         if (removed) {
           const roomId = `room-${safeMode}-${now}-${Math.random().toString(36).slice(2, 6)}`;
           
-          await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId, matchedTag, mode: safeMode });
-          await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId, matchedTag, mode: safeMode });
+          // 🌐 Fetch partner's country before triggering
+          const partnerCountry = await redis.get(`country:${partnerId}`) || 'UN';
+
+          await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId, matchedTag, mode: safeMode, partnerCountry });
+          await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId, matchedTag, mode: safeMode, partnerCountry: country });
           
           // Cleanup global presence
           await redis.zrem('active_queue', userId);
           await redis.zrem('active_queue', partnerId);
           
-          return { partnerId };
+          return { partnerId, partnerCountry };
         }
       }
       return null;
