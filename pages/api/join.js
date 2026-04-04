@@ -23,6 +23,16 @@ export default async function handler(req, res) {
     const { userId, interests } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId required' });
 
+    // Validate Env Vars
+    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+      console.error('[SL] Redis credentials missing in environment!');
+      return res.status(500).json({ error: 'Database configuration missing' });
+    }
+    if (!process.env.PUSHER_APP_ID || !process.env.PUSHER_SECRET) {
+      console.error('[SL] Pusher credentials missing in environment!');
+      return res.status(500).json({ error: 'Signaling configuration missing' });
+    }
+
     const now = Date.now();
     const minTime = now - HEARTBEAT_WINDOW_MS;
 
@@ -30,7 +40,7 @@ export default async function handler(req, res) {
     await redis.zadd('active_queue', { score: now, member: userId });
     
     // 2. Fetch Trending Tags (Top 12)
-    const trending = await redis.zrevrange('trending_tags', 0, 11);
+    const trending = await redis.zrange('trending_tags', 0, 11, { rev: true });
     const onlineCount = await redis.zcount('active_queue', minTime, '+inf');
 
     // 3. Matchmaking by interests
@@ -40,7 +50,7 @@ export default async function handler(req, res) {
         if (!sanitizedTag) continue;
 
         // Find an active user in this tag who isn't me
-        const candidates = await redis.zrangebyscore(`waiting_tag:${sanitizedTag}`, minTime, '+inf', { offset: 0, count: 10 });
+        const candidates = await redis.zrange(`waiting_tag:${sanitizedTag}`, minTime, '+inf', { byScore: true, offset: 0, count: 10 });
         const partnerId = candidates.find(id => id !== userId);
 
         if (partnerId) {
@@ -75,7 +85,7 @@ export default async function handler(req, res) {
     }
 
     // 4. Global Matchmaking (fallback)
-    const globalCandidates = await redis.zrangebyscore('active_queue', minTime, '+inf', { offset: 0, count: 20 });
+    const globalCandidates = await redis.zrange('active_queue', minTime, '+inf', { byScore: true, offset: 0, count: 20 });
     const partnerId = globalCandidates.find(id => id !== userId);
 
     if (partnerId) {
