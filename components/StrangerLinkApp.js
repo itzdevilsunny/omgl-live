@@ -48,6 +48,8 @@ export default function StrangerLinkApp() {
   const [unreadCount,   setUnreadCount]   = useState(0);     // 🆕 unread badge
   const [callTimer,     setCallTimer]     = useState(0);     // 🆕 session timer (seconds)
   const [reactions,     setReactions]     = useState([]);    // 🆕 floating emoji [{id,emoji,x,y}]
+  const [snapshotUrl,   setSnapshotUrl]   = useState(null);  // 📸 selfie preview data URL
+  const [shutterFlash,  setShutterFlash]  = useState(false); // 📸 white flash animation
   const [showEmojiBar,  setShowEmojiBar]  = useState(false); // 🆕 emoji picker toggle
   const [isGenerating,  setIsGenerating]  = useState(false); // 🆕 AI icebreaker toggle
   const [showSettings,  setShowSettings]  = useState(false); // 🆕 settings modal
@@ -802,6 +804,83 @@ export default function StrangerLinkApp() {
     if (tr) { tr.enabled = !tr.enabled; setIsCamOff(!tr.enabled); }
   }
 
+  /* ── SELFIE / SNAPSHOT ─────────────────────────────────────── */
+  function captureSnapshot() {
+    const remoteVid = remoteVideoRef.current;
+    const localVid  = localVideoRef.current;
+    if (!remoteVid || !localVid) return;
+
+    // Canvas: remote video full-width, local as PiP bottom-right
+    const W = 1280, H = 720;
+    const pipW = 240, pipH = 135;
+    const canvas = document.createElement('canvas');
+    canvas.width  = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    // 1. Draw remote video (full frame)
+    try { ctx.drawImage(remoteVid, 0, 0, W, H); } catch {}
+
+    // 2. Draw rounded PiP border for local
+    const pipX = W - pipW - 16;
+    const pipY = H - pipH - 16;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.roundRect(pipX - 3, pipY - 3, pipW + 6, pipH + 6, 10);
+    ctx.fillStyle = '#000';
+    ctx.fill();
+    ctx.restore();
+
+    // 3. Draw local video as PiP
+    try {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(pipX, pipY, pipW, pipH, 8);
+      ctx.clip();
+      ctx.drawImage(localVid, pipX, pipY, pipW, pipH);
+      ctx.restore();
+    } catch {}
+
+    // 4. Watermark
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = 'bold 18px Inter, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('omgl.live', W - 18, H - 18);
+
+    // 5. Flash + show preview
+    setShutterFlash(true);
+    setTimeout(() => setShutterFlash(false), 400);
+
+    const url = canvas.toDataURL('image/png');
+    setSnapshotUrl(url);
+  }
+
+  function downloadSnapshot() {
+    if (!snapshotUrl) return;
+    const a = document.createElement('a');
+    a.href = snapshotUrl;
+    a.download = `omgl-selfie-${Date.now()}.png`;
+    a.click();
+  }
+
+  async function shareSnapshot() {
+    if (!snapshotUrl) return;
+    try {
+      // Convert data URL to blob for Web Share API
+      const res = await fetch(snapshotUrl);
+      const blob = await res.blob();
+      const file = new File([blob], 'omgl-selfie.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'My omgl.live moment!', text: 'Met someone interesting on omgl.live 🌍' });
+      } else {
+        // Fallback: just download
+        downloadSnapshot();
+      }
+    } catch {}
+  }
+
   async function sendMessage(text) {
     const msg = text || inputMsg.trim();
     if (!msg || !partnerIdRef.current) return;
@@ -1269,6 +1348,9 @@ export default function StrangerLinkApp() {
                     <button className={styles.btnIcon} onClick={reportUser} title="Report User">
                       🚩
                     </button>
+                    <button className={styles.btnIcon} onClick={captureSnapshot} title="Take Selfie 📸">
+                      📸
+                    </button>
                     <div className={styles.divider} />
                   </>
                 )}
@@ -1283,6 +1365,9 @@ export default function StrangerLinkApp() {
               </div>
             )}
           </div>
+
+          {/* 📸 Shutter Flash Overlay */}
+          {shutterFlash && <div className={styles.shutterFlash} />}
 
           {/* ══ RIGHT PANEL: CHAT ════════════════════════════ */}
           <div className={styles.rightPanel}>
@@ -1485,6 +1570,26 @@ export default function StrangerLinkApp() {
               <button className={styles.btnStart} onClick={() => setShowSettings(false)} style={{ width: '100%', justifyContent: 'center' }}>
                 Done
               </button>
+            </div>
+          </div>
+        )}
+        {/* 📸 SNAPSHOT PREVIEW MODAL */}
+        {snapshotUrl && (
+          <div className={styles.snapshotOverlay} onClick={() => setSnapshotUrl(null)}>
+            <div className={styles.snapshotModal} onClick={e => e.stopPropagation()}>
+              <div className={styles.snapshotHeader}>
+                <span>📸 Your Omgl Moment</span>
+                <button className={styles.btnIcon} onClick={() => setSnapshotUrl(null)} style={{ width: 32, height: 32 }}>✕</button>
+              </div>
+              <img src={snapshotUrl} alt="snapshot" className={styles.snapshotImg} />
+              <div className={styles.snapshotActions}>
+                <button className={styles.btnStart} onClick={downloadSnapshot}>
+                  ⬇️ Download PNG
+                </button>
+                <button className={styles.btnSkip} onClick={shareSnapshot}>
+                  📤 Share
+                </button>
+              </div>
             </div>
           </div>
         )}

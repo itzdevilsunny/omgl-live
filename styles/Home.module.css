@@ -1508,3 +1508,69 @@
   color: var(--brand);
   box-shadow: 0 0 12px color-mix(in srgb, var(--brand) 30%, transparent);
 }
+
+/* ── SELFIE / SNAPSHOT ─────────────────────────────────────── */
+
+@keyframes shutterFade {
+  0%   { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+.shutterFlash {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  z-index: 9999;
+  pointer-events: none;
+  animation: shutterFade 0.4s ease-out forwards;
+}
+
+.snapshotOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.snapshotModal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  width: min(680px, 95vw);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: fadeInUp 0.25s ease;
+}
+
+.snapshotHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.snapshotImg {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.snapshotActions {
+  display: flex;
+  gap: 10px;
+}
+
+.snapshotActions > button {
+  flex: 1;
+  justify-content: center;
+}
