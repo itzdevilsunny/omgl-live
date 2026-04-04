@@ -310,17 +310,27 @@ export default function StrangerLinkApp() {
 
     const remoteStream = new MediaStream();
     remoteStreamRef.current = remoteStream;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.muted = false;
+    }
 
+    // Debounce play() to avoid AbortError when tracks arrive rapidly
+    let playDebounce = null;
     pc.ontrack = (e) => {
       log(`Track: ${e.track.kind}`);
       remoteStream.addTrack(e.track);
       if (e.track.kind === 'audio') startRemoteVisualizer(remoteStream);
       if (remoteVideoRef.current) {
-        // ✅ AUDIO/VIDEO FIX: ensure remote video is never muted (only local is muted for echo prevention)
         remoteVideoRef.current.muted = false;
         remoteVideoRef.current.srcObject = remoteStream;
-        remoteVideoRef.current.play().catch(e => log('Remote video play error: ' + e));
+        // Debounce play to avoid AbortError when audio+video arrive back-to-back
+        clearTimeout(playDebounce);
+        playDebounce = setTimeout(() => {
+          if (remoteVideoRef.current && remoteVideoRef.current.paused) {
+            remoteVideoRef.current.play().catch(err => log('Remote play err: ' + err.name));
+          }
+        }, 200);
       }
     };
 
@@ -371,36 +381,49 @@ export default function StrangerLinkApp() {
   }
 
   async function handleOffer(offer, fromId) {
-    log(`Offer from ${fromId}`);
+    log(`Offer from ${fromId} (state: ${pcRef.current?.signalingState ?? 'none'})`);
     partnerIdRef.current = fromId;
-    const pc = createPeerConnection();
-    
-    // Guard: already have a remote description?
-    if (pc.signalingState !== 'stable') {
-      log('Conflict: PeerConnection not stable for offer. Current: ' + pc.signalingState);
-      return;
+
+    // If we already sent an offer (glare condition), polite peer rolls back
+    if (pcRef.current && pcRef.current.signalingState === 'have-local-offer') {
+      log('Glare: rolling back local offer to accept remote offer');
+      try { await pcRef.current.setLocalDescription({ type: 'rollback' }); } catch {}
     }
 
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    await flushIce();
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await sig(fromId, 'answer', answer);
-    log('Answer sent');
+    // Only create a fresh PC if one doesn't exist yet
+    const pc = (pcRef.current && pcRef.current.signalingState !== 'closed')
+      ? pcRef.current
+      : createPeerConnection();
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await flushIce();
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await sig(fromId, 'answer', answer);
+      log('Answer sent');
+    } catch (err) {
+      log('handleOffer error: ' + err.message);
+    }
   }
 
   async function handleAnswer(answer) {
-    log('Answer received');
+    log(`Answer received (state: ${pcRef.current?.signalingState ?? 'none'})`);
     const pc = pcRef.current;
-    if (!pc) return;
-    
-    if (pc.signalingState !== 'have-local-offer') {
-      log('Ignore: Signaling State not have-local-offer. Current: ' + pc.signalingState);
+    if (!pc) { log('No PC for answer'); return; }
+
+    if (pc.signalingState === 'stable') {
+      log('Answer already applied (state is stable), skipping');
       return;
     }
 
-    await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    await flushIce();
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushIce();
+      log('Remote description set successfully');
+    } catch (err) {
+      log('handleAnswer error: ' + err.message);
+    }
   }
 
   async function handleIce(candidate) {
