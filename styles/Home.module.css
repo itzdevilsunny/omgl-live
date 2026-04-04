@@ -203,7 +203,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: row;  /* Side-by-side videos on desktop */
-  flex: 1.5;            /* video takes more space than chat */
+  flex: 1;              /* Takes all remaining space */
   min-height: 0;
 }
 
@@ -380,18 +380,14 @@
 /* ── FLOATING EMOJI REACTIONS ─────────────────────────────────── */
 .floatingReaction {
   position: absolute;
-  font-size: 32px;
-  z-index: 30;
+  font-size: 38px; /* Slightly bigger for pop */
+  bottom: 0px; /* Force bottom origin so Framer can handle -Y translation strictly */
+  z-index: 50;
   pointer-events: none;
-  animation: floatUp 2.5s ease-out forwards;
   user-select: none;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5));
 }
 
-@keyframes floatUp {
-  0%   { transform: translateY(0) scale(0.6); opacity: 1; }
-  80%  { opacity: 1; }
-  100% { transform: translateY(-120px) scale(1.2); opacity: 0; }
-}
 
 /* Reaction bar */
 .reactionBar {
@@ -702,9 +698,10 @@
 .rightPanel {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   background: var(--surface);
-  flex: 1;                 /* Chat area at the bottom */
+  width: 320px;            /* Fixed narrower chat sidebar */
+  flex-shrink: 0;          /* Prevent shrinking on desktop */
   min-height: 200px;
   overflow: hidden;
 }
@@ -1446,4 +1443,68 @@
 @media (max-width: 400px) {
   /* No PiP size overrides needed — both videos are full panels */
   .controlsBar { gap: 5px; }
+}
+
+.pulseAnim {
+  animation: icebreakerPulse 1s infinite alternate ease-in-out;
+}
+
+@keyframes icebreakerPulse {
+  0% { transform: scale(1); filter: brightness(1) drop-shadow(0 0 0px var(--brand)); }
+  100% { transform: scale(1.1) rotate(15deg); filter: brightness(1.2) drop-shadow(0 0 5px var(--brand)); }
+}
+
+.glassVisualizer {
+  position: absolute;
+  bottom: 0px;
+  left: 0;
+  width: 100%;
+  height: 40px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%);
+  z-index: 10;
+  pointer-events: none;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  overflow: hidden;
+}
+
+.translatedBadge {
+  font-size: 10px;
+  color: var(--brand);
+  margin-left: 6px;
+  font-style: italic;
+  opacity: 0.8;
+  cursor: help;
+}
+
+.blurToggleBtn {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.blurToggleBtn:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+}
+
+.blurToggleBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.blurToggleBtnActive {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+  color: var(--brand);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--brand) 30%, transparent);
 }

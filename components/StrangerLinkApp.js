@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Head from 'next/head';
 import Pusher from 'pusher-js';
 import styles from '../styles/Home.module.css';
+import AudioVisualizer from './AudioVisualizer';
+import { useBackgroundBlur } from './BackgroundBlur';
 
 /* ── Constants ─────────────────────────────────────────────── */
 const ICE_SERVERS = {
@@ -46,19 +49,24 @@ export default function StrangerLinkApp() {
   const [callTimer,     setCallTimer]     = useState(0);     // 🆕 session timer (seconds)
   const [reactions,     setReactions]     = useState([]);    // 🆕 floating emoji [{id,emoji,x,y}]
   const [showEmojiBar,  setShowEmojiBar]  = useState(false); // 🆕 emoji picker toggle
+  const [isGenerating,  setIsGenerating]  = useState(false); // 🆕 AI icebreaker toggle
   const [showSettings,  setShowSettings]  = useState(false); // 🆕 settings modal
   const [videoDevices,  setVideoDevices]  = useState([]);    // 🆕 list of cameras
   const [audioDevices,  setAudioDevices]  = useState([]);    // 🆕 list of mics
   const [selectedVideo, setSelectedVideo] = useState('');    // 🆕 chosen cameraId
   const [selectedAudio, setSelectedAudio] = useState('');    // 🆕 chosen micId
-  const [audioLevel,    setAudioLevel]    = useState(0);     // 🆕 for visualizer
   const [onlineCount,   setOnlineCount]   = useState(0);     // 🆕 total users
   const [trendingTags,  setTrendingTags]  = useState([]);    // 🆕 popular interests
   const [connType,      setConnType]      = useState('Direct'); // P2P or Relay
   const [soundEnabled,  setSoundEnabled]  = useState(true);     // sound toggle
   const [sharedTag,     setSharedTag]     = useState('');      // 🆕 the shared interest tag
   const [pusherStatus,  setPusherStatus]  = useState('disconnected'); // 🆕 signaling state
-  const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);      // 🆕 for remote visualization
+  const [blurBackground, setBlurBackground] = useState(false); // 🆕 virtual bg blur
+  
+  // 🆕 Advanced Profile States
+  const [chatMode,      setChatMode]      = useState('video');
+  const [ageGroup,      setAgeGroup]      = useState('any');
+  const [qualification, setQualification] = useState('any');
 
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -87,9 +95,9 @@ export default function StrangerLinkApp() {
   const timerRef        = useRef(null);   // 🆕 interval for call timer
   const chatScrollRef   = useRef(null);   // 🆕 for unread badge logic
   const reactionIdRef   = useRef(0);      // 🆕 unique ID for floating reactions
-  const audioContextRef = useRef(null);   // 🆕 for visualizer
-  const audioAnalyserRef = useRef(null);  // 🆕 for visualizer
-  const audioAnimRef    = useRef(null);   // 🆕 for visualizer
+
+  /* ── BACKGROUND BLUR HOOK ─────────────────────────────────── */
+  const { startBlur, stopBlur, isBlurActive, isLoading: isBlurLoading, blurStreamRef } = useBackgroundBlur();
 
   /* ── UTILS ─────────────────────────────────────────────────── */
   function updateStatus(s) { statusRef.current = s; setStatus(s); }
@@ -139,9 +147,16 @@ export default function StrangerLinkApp() {
 
   function spawnReaction(emoji, isLocal = true) {
     if (!isLocal) playBeep('reaction');
-    const id = Date.now();
-    setReactions(prev => [...prev, { id, emoji, left: Math.random() * 80 + 10 }]);
-    setTimeout(() => setReactions(prev => prev.filter(r => r.id !== id)), 3000);
+    const id = Date.now() + Math.random().toString(36).substring(7);
+    
+    // Generate TikTok style trajectory parameters
+    const randomLeft = Math.random() * 80 + 10;
+    const sway = (Math.random() - 0.5) * 100; // random drift amount
+    const duration = 2 + Math.random() * 1;
+    const initialScale = 0.4 + Math.random() * 0.4;
+    
+    setReactions(prev => [...prev, { id, emoji, left: randomLeft, sway, duration, initialScale }]);
+    setTimeout(() => setReactions(prev => prev.filter(r => r.id !== id)), duration * 1000);
   }
 
   /* ── DEVICE DISCOVERY ─────────────────────────────────────── */
@@ -186,56 +201,8 @@ export default function StrangerLinkApp() {
   }
 
   /* ── AUDIO VISUALIZER ─────────────────────────────────────── */
-  function startVisualizer(stream) {
-    if (!stream.getAudioTracks().length) return;
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AudioCtx();
-      audioContextRef.current = ctx;
-      const src = ctx.createMediaStreamSource(stream);
-      const ana = ctx.createAnalyser();
-      ana.fftSize = 256;
-      src.connect(ana);
-      audioAnalyserRef.current = ana;
-
-      const data = new Uint8Array(ana.frequencyBinCount);
-      const update = () => {
-        ana.getByteFrequencyData(data);
-        const avg = data.reduce((a, b) => a + b, 0) / data.length;
-        setAudioLevel(avg);
-        audioAnimRef.current = requestAnimationFrame(update);
-      };
-      update();
-    } catch {}
-  }
-
-  function stopVisualizer() {
-    if (audioAnimRef.current) cancelAnimationFrame(audioAnimRef.current);
-    if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
-    setAudioLevel(0);
-    setRemoteAudioLevel(0);
-  }
-
-  function startRemoteVisualizer(stream) {
-    if (!stream.getAudioTracks().length) return;
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const src = ctx.createMediaStreamSource(stream);
-      const ana = ctx.createAnalyser();
-      ana.fftSize = 256;
-      src.connect(ana);
-      const data = new Uint8Array(ana.frequencyBinCount);
-      const update = () => {
-        if (statusRef.current !== 'connected') return;
-        ana.getByteFrequencyData(data);
-        const avg = data.reduce((a, b) => a + b, 0) / data.length;
-        setRemoteAudioLevel(avg);
-        requestAnimationFrame(update);
-      };
-      update();
-    } catch {}
-  }
-
+  // Legacy visualizer functions removed in favor of <AudioVisualizer /> component
+  
   /* ── MEDIA ─────────────────────────────────────────────────── */
   async function getLocalStream() {
     if (localStreamRef.current) return localStreamRef.current;
@@ -266,7 +233,6 @@ export default function StrangerLinkApp() {
       localVideoRef.current.srcObject = stream;
       localVideoRef.current.play().catch(() => {});
     }
-    startVisualizer(stream);
     return stream;
   }
 
@@ -297,9 +263,6 @@ export default function StrangerLinkApp() {
     localStreamRef.current = combined;
     if (localVideoRef.current) localVideoRef.current.srcObject = combined;
 
-    // If visualizing audio, restart
-    if (kind === 'audio') { stopVisualizer(); startVisualizer(combined); }
-
     // 🔥 HOT SWAP: replace track in RTCPeerConnection
     if (pcRef.current) {
       const senders = pcRef.current.getSenders();
@@ -307,6 +270,40 @@ export default function StrangerLinkApp() {
       if (sender) {
         log(`Replacing ${newTrack.kind} track...`);
         await sender.replaceTrack(newTrack);
+      }
+    }
+  }
+
+  /* ── BACKGROUND BLUR TOGGLE ────────────────────────────────── */
+  async function handleBlurToggle() {
+    const rawStream = localStreamRef.current;
+    if (!rawStream) return;
+
+    if (isBlurActive) {
+      // Disable blur: swap back raw video track
+      stopBlur();
+      setBlurBackground(false);
+      if (localVideoRef.current) localVideoRef.current.srcObject = rawStream;
+      // Hot-swap the original raw video track back into RTC
+      const rawVideoTrack = rawStream.getVideoTracks()[0];
+      if (pcRef.current && rawVideoTrack) {
+        const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(rawVideoTrack);
+      }
+    } else {
+      // Enable blur
+      setBlurBackground(true);
+      const blurred = await startBlur(rawStream);
+      if (!blurred) { setBlurBackground(false); return; } // failed to load model
+
+      // Show blurred preview locally
+      if (localVideoRef.current) localVideoRef.current.srcObject = blurred;
+
+      // Hot-swap blurred canvas video track into RTC
+      const blurVideoTrack = blurred.getVideoTracks()[0];
+      if (pcRef.current && blurVideoTrack) {
+        const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(blurVideoTrack);
       }
     }
   }
@@ -425,7 +422,6 @@ export default function StrangerLinkApp() {
       if (!remoteStream.getTracks().find(t => t.id === e.track.id)) {
         remoteStream.addTrack(e.track);
       }
-      if (e.track.kind === 'audio') startRemoteVisualizer(remoteStream);
       // Attempt to play as soon as ANY track arrives
       playRemoteVideo();
     };
@@ -497,11 +493,24 @@ export default function StrangerLinkApp() {
 
   /* ── SIGNALING ─────────────────────────────────────────────── */
   async function sig(targetUserId, type, data) {
-    await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUserId, type, data, from: userIdRef.current }),
-    });
+    try {
+      const res = await fetch('/api/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUserId, type, data, from: userIdRef.current }),
+      });
+
+      if (!res.ok && type === 'chat' && res.status === 403) {
+        // Handle AI Moderation Flag
+        const errData = await res.json().catch(() => ({}));
+        setMessages(m => [...m, { 
+          from: 'system', 
+          text: `🚫 Message not sent. Reason: ${errData.reason || 'Violates community guidelines.'}`
+        }]);
+      }
+    } catch (err) {
+      console.error('[SL] Signaling Error:', err);
+    }
   }
 
   async function handleOffer(offer, fromId) {
@@ -567,9 +576,11 @@ export default function StrangerLinkApp() {
   /* ── CALL FLOW ─────────────────────────────────────────────── */
   async function startCall(isInitiator) {
     log(`startCall isInitiator=${isInitiator}`);
-    await getLocalStream();
+    if (chatMode !== 'text') {
+      await getLocalStream();
+    }
     startTimer();
-    if (isInitiator) {
+    if (isInitiator && chatMode !== 'text') {
       // 200ms: enough for the non-initiator to subscribe to Pusher, but fast
       await new Promise(r => setTimeout(r, 200));
       const pc = createPeerConnection();
@@ -663,7 +674,9 @@ export default function StrangerLinkApp() {
     updateStatus('requesting');
 
     try { 
-      await getLocalStream(); 
+      if (chatMode !== 'text') {
+        await getLocalStream(); 
+      }
     } catch (err) {
       console.error('[SL] Matchmaking abort: Media Denied', err);
       updateStatus('idle'); 
@@ -686,7 +699,7 @@ export default function StrangerLinkApp() {
         const res = await fetch('/api/join', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, interests: getInterestsArray() }),
+          body: JSON.stringify({ userId, interests: getInterestsArray(), mode: chatMode, age: ageGroup, qual: qualification, language: navigator.language }),
         });
         const data = await res.json();
         if (data.onlineCount) setOnlineCount(data.onlineCount);
@@ -716,7 +729,7 @@ export default function StrangerLinkApp() {
     updateStatus('waiting');
 
     async function doJoin() {
-      try { await fetch('/api/join', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ userId, interests: getInterestsArray() }) }); } catch {}
+      try { await fetch('/api/join', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ userId, interests: getInterestsArray(), mode: chatMode, age: ageGroup, qual: qualification, language: navigator.language }) }); } catch {}
     }
     doJoin();
     pollingRef.current = setInterval(() => {
@@ -727,7 +740,6 @@ export default function StrangerLinkApp() {
 
   async function stopChat() {
     stopTimer();
-    stopVisualizer();
     if (pollingRef.current) clearInterval(pollingRef.current);
     if (partnerIdRef.current) fetch('/api/leave', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ partnerId: partnerIdRef.current, userId }) }).catch(() => {});
     pcRef.current?.close(); pcRef.current = null;
@@ -782,9 +794,24 @@ export default function StrangerLinkApp() {
     typingTimer.current = setTimeout(() => sig(partnerIdRef.current, 'stop-typing', {}), 1500);
   }
 
-
-
-  /* ── EFFECTS ────────────────────────────────────────────────── */
+  /* ── ICEBREAKER (AI) ───────────────────────────────────────── */
+  async function handleIcebreaker() {
+    setIsGenerating(true);
+    try {
+      const res = await fetch('/api/icebreaker', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag: sharedTag })
+      });
+      const data = await res.json();
+      if (data.icebreaker && typeof data.icebreaker === 'string') {
+        setInputMsg(data.icebreaker);
+      }
+    } catch (err) {
+      console.error('[SL] Icebreaker error:', err);
+    }
+    setIsGenerating(false);
+  }  /* ── EFFECTS ────────────────────────────────────────────────── */
   useEffect(() => {
     setMounted(true);
     refreshDevices();
@@ -1006,12 +1033,16 @@ export default function StrangerLinkApp() {
                 </div>
               )}
 
+              {/* 🆕 Glassmorphism Audio Visualizer (Remote) */}
+              {remoteStreamRef.current && (
+                <AudioVisualizer stream={remoteStreamRef.current} />
+              )}
+
               {/* Debug HUD */}
               {isActive && (
                 <div className={styles.debugHud}>
                   <div className={styles.debugRow}><span>SIG:</span> <span style={{ color: pusherStatus === 'connected' ? 'var(--green)' : 'var(--red)' }}>{pusherStatus.toUpperCase()}</span></div>
                   <div className={styles.debugRow}><span>NET:</span> {connType}</div>
-                  <div className={styles.debugRow}><span>R-AUD:</span> {Math.round(remoteAudioLevel)}</div>
                   {debugMsg && <div className={styles.debugRow}><span>LOG:</span> {debugMsg}</div>}
                 </div>
               )}
@@ -1034,27 +1065,33 @@ export default function StrangerLinkApp() {
               <video ref={localVideoRef} autoPlay playsInline muted className={styles.videoLocal} />
               <span className={styles.videoLabel}>You</span>
               
-              {/* 🆕 Audio Visualizer Bar */}
+              {/* 🆕 Glassmorphism Audio Visualizer */}
               {localStreamRef.current && (
-                <div className={styles.audioMeterContainer}>
-                  <div 
-                    className={styles.audioMeterBar} 
-                    style={{ width: `${Math.min(100, (audioLevel / 128) * 100)}%` }} 
-                  />
-                </div>
+                <AudioVisualizer stream={localStreamRef.current} />
               )}
             </div>
 
             {/* 🆕 Floating emoji reactions on video */}
-            {reactions.map(r => (
-              <div
-                key={r.id}
-                className={styles.floatingReaction}
-                style={{ left: `${r.x}%`, bottom: `${r.y}%` }}
-              >
-                {r.emoji}
-              </div>
-            ))}
+            <AnimatePresence>
+              {reactions.map(r => (
+                <motion.div
+                  key={r.id}
+                  className={styles.floatingReaction}
+                  initial={{ opacity: 0, scale: r.initialScale, y: 50, x: 0 }}
+                  animate={{ 
+                    opacity: [0, 1, 1, 0], 
+                    scale: [r.initialScale, 1.2, 1], 
+                    y: -400, 
+                    x: [0, r.sway, -r.sway/2, 0] 
+                  }}
+                  exit={{ opacity: 0, scale: 0.5 }}
+                  transition={{ duration: r.duration, ease: "easeOut" }}
+                  style={{ left: `${r.left}%` }}
+                >
+                  {r.emoji}
+                </motion.div>
+              ))}
+            </AnimatePresence>
 
             {/* 🆕 Reaction bar (during connected) */}
             {isActive && (
@@ -1107,11 +1144,31 @@ export default function StrangerLinkApp() {
                   <div className={styles.holographicBeam} />
                   <div className={styles.holographicGlow + ' ' + (activeTags.length > 0 ? styles.holographicGlowActive : '')} />
                   
-                  <h3 className={styles.interestTitle}>Discovery Filters</h3>
-                  <p className={styles.interestSubtitle}>Add tags to find people with shared vibes</p>
+                  <h3 className={styles.interestTitle}>Start Chatting</h3>
+                  <p className={styles.interestSubtitle}>Configure your perfect match parameters</p>
+                  
+                  <div className={styles.interestWrapper} style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <button className={`${styles.tagChip} ${chatMode === 'video' ? styles.tagChipActive : ''}`} onClick={() => setChatMode('video')} style={{ flex: 1 }}>📹 Video Mode</button>
+                      <button className={`${styles.tagChip} ${chatMode === 'text' ? styles.tagChipActive : ''}`} onClick={() => setChatMode('text')} style={{ flex: 1 }}>💬 Text Mode</button>
+                    </div>
+                    <select className={styles.settingsSelect} value={ageGroup} onChange={e => setAgeGroup(e.target.value)} style={{ padding: '8px', fontSize: '13px' }}>
+                      <option value="any">Any Age</option>
+                      <option value="18-21">18-21</option>
+                      <option value="22-25">22-25</option>
+                      <option value="26-30">26-30</option>
+                      <option value="30+">30+</option>
+                    </select>
+                    <select className={styles.settingsSelect} value={qualification} onChange={e => setQualification(e.target.value)} style={{ padding: '8px', fontSize: '13px' }}>
+                      <option value="any">Any Background</option>
+                      <option value="highschool">High School</option>
+                      <option value="college">College Student</option>
+                      <option value="professional">Professional</option>
+                    </select>
+                  </div>
                   
                   <div className={styles.interestWrapper} style={{ marginBottom: '24px' }}>
-                    <p className={styles.settingsLabel} style={{ fontSize: '9px', marginBottom: '8px' }}>Select interests to match faster</p>
+                    <p className={styles.settingsLabel} style={{ fontSize: '11px', marginBottom: '8px' }}>Select interests to match faster</p>
                     <div className={styles.interestTags}>
                       {QUICK_TAGS.map(tag => (
                         <button
@@ -1235,7 +1292,14 @@ export default function StrangerLinkApp() {
                     {m.from !== 'system' && (
                       <span className={styles.msgFrom}>{m.from === 'me' ? 'You' : 'Stranger'}</span>
                     )}
-                    <span className={styles.msgText}>{m.text}</span>
+                    <span className={styles.msgText}>
+                      {m.text}
+                      {m.translated && (
+                        <span className={styles.translatedBadge} title={`Original: ${m.original}`}>
+                          (Translated)
+                        </span>
+                      )}
+                    </span>
                   </div>
                 ))}
                 {partnerTyping && (
@@ -1275,6 +1339,18 @@ export default function StrangerLinkApp() {
                     style={{ flexShrink: 0 }}
                   >
                     😊
+                  </button>
+                )}
+                {/* 🆕 Icebreaker toggle */}
+                {isActive && (
+                  <button
+                    className={`${styles.btnIcon} ${isGenerating ? styles.pulseAnim : ''}`}
+                    onClick={handleIcebreaker}
+                    disabled={isGenerating}
+                    title="Generate AI Icebreaker"
+                    style={{ flexShrink: 0, marginLeft: '4px' }}
+                  >
+                    {isGenerating ? '⏳' : '🎲'}
                   </button>
                 )}
                 <input
@@ -1363,6 +1439,25 @@ export default function StrangerLinkApp() {
 
               <div className={styles.debugHud} style={{ position: 'static', marginTop: '10px' }}>
                 Peer ID: {userId.slice(0,8)}...
+              </div>
+
+              {/* 🆕 Virtual Background Blur Toggle */}
+              <div className={styles.settingsGroup} style={{ marginTop: '14px' }}>
+                <label className={styles.settingsLabel}>🎭 Privacy</label>
+                <button
+                  className={`${styles.blurToggleBtn} ${isBlurActive ? styles.blurToggleBtnActive : ''}`}
+                  onClick={handleBlurToggle}
+                  disabled={isBlurLoading || !localStreamRef.current}
+                >
+                  {isBlurLoading
+                    ? '⏳ Loading AI Model...'
+                    : isBlurActive
+                    ? '✅ Background Blur: ON'
+                    : '🌫️ Background Blur: OFF'}
+                </button>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.4 }}>
+                  Uses TensorFlow to blur your background in real-time. May use extra GPU power.
+                </p>
               </div>
 
               <button className={styles.btnStart} onClick={() => setShowSettings(false)} style={{ width: '100%', justifyContent: 'center' }}>
