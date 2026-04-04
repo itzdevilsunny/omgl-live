@@ -78,6 +78,7 @@ export default function StrangerLinkApp() {
   const [sharedTag,     setSharedTag]     = useState('');      // 🆕 the shared interest tag
   const [pusherStatus,  setPusherStatus]  = useState('disconnected'); // 🆕 signaling state
   const [blurBackground, setBlurBackground] = useState(false); // 🆕 virtual bg blur
+  const [chatTheme,      setChatTheme]      = useState('standard'); // 🆕 standard|neon|cyber|luxury
   
   // 🆕 Advanced Profile States
   const [chatMode,      setChatMode]      = useState('video');
@@ -968,6 +969,8 @@ export default function StrangerLinkApp() {
       const saved = localStorage.getItem('sl-theme') || 'dark';
       setTheme(saved);
       document.documentElement.setAttribute('data-theme', saved);
+      const savedCT = localStorage.getItem('sl-chat-theme') || 'standard';
+      setChatTheme(savedCT);
     } catch { document.documentElement.setAttribute('data-theme', 'dark'); }
 
     // Initialize Pusher on mount
@@ -1054,7 +1057,7 @@ export default function StrangerLinkApp() {
         <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet" />
       </Head>
 
-      <div className={`${styles.container} ${theme === 'light' ? styles.lightTheme : ''}`}>
+      <div className={`${styles.container} ${theme === 'light' ? styles.lightTheme : ''}`} data-chat-theme={chatTheme}>
         <div className={styles.noiseOverlay} />
 
         {/* ── HEADER ─────────────────────────────────────────── */}
@@ -1533,6 +1536,44 @@ export default function StrangerLinkApp() {
                   ))}
                   {videoDevices.length === 0 && <option disabled>No cameras found</option>}
                 </select>
+              </div>
+
+              <div className={styles.settingsGroup}>
+                <label className={styles.settingsLabel}>🎨 Chat Theme</label>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  {[
+                    { id: 'standard', color: '#7c6aff', name: 'Original' },
+                    { id: 'neon',     color: '#bc13fe', name: 'Neon' },
+                    { id: 'cyber',    color: '#ff0055', name: 'Cyber' },
+                    { id: 'luxury',   color: '#d4af37', name: 'Luxury' }
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setChatTheme(t.id);
+                        localStorage.setItem('sl-chat-theme', t.id);
+                      }}
+                      style={{
+                        flex: 1,
+                        height: '38px',
+                        borderRadius: '8px',
+                        background: t.color,
+                        border: chatTheme === t.id ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.1)',
+                        cursor: 'pointer',
+                        fontSize: '10px',
+                        fontWeight: 'bold',
+                        color: t.id === 'luxury' ? '#000' : '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        transform: chatTheme === t.id ? 'scale(1.05)' : 'scale(1)'
+                      }}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className={styles.settingsGroup}>
