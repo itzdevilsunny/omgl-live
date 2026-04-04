@@ -130,12 +130,37 @@ export default function StrangerLinkApp() {
   }
 
   /* ── TIMER ─────────────────────────────────────────────────── */
+  const MAX_CALL_DURATION = 600; // 10 minutes in seconds
+  const timerStartRef = useRef(null); // performance.now() timestamp at call start
+
   function startTimer() {
-    setCallTimer(0);
-    timerRef.current = setInterval(() => setCallTimer(n => n + 1), 1000);
+    // Strict guard — reject any duplicate calls while timer is already running
+    if (timerRef.current) return;
+
+    // performance.now() = monotonic high-resolution clock (never drifts, unaffected by system clock)
+    timerStartRef.current = performance.now();
+
+    timerRef.current = setInterval(() => {
+      if (!timerStartRef.current) return;
+      // Elapsed seconds from the monotonic clock — 100% accurate, no drift
+      const elapsed = Math.floor((performance.now() - timerStartRef.current) / 1000);
+      setCallTimer(elapsed);
+
+      if (elapsed >= MAX_CALL_DURATION) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+        setMessages(prev => [...prev, { from: 'system', text: '⏰ 10-minute session limit reached. Connect again to keep chatting!' }]);
+        setTimeout(() => stopChat(), 3000);
+      } else if (elapsed === MAX_CALL_DURATION - 60) {
+        setMessages(prev => [...prev, { from: 'system', text: '⚠️ 1 minute remaining in this session.' }]);
+      }
+    }, 1000);
   }
+
   function stopTimer() {
     clearInterval(timerRef.current);
+    timerRef.current = null;
+    timerStartRef.current = null;
     setCallTimer(0);
   }
 
@@ -464,13 +489,13 @@ export default function StrangerLinkApp() {
         setTimeout(() => applyQualitySettings(pc), 600);
       }
       if (pc.connectionState === 'disconnected') {
-        // 'disconnected' is transient during ICE restarts — give 6s grace period
+        // 'disconnected' is transient during ICE restarts — give 60s grace period before giving up
         disconnectTimerRef.current = setTimeout(() => {
           if (pcRef.current && pcRef.current.connectionState === 'disconnected') {
-            log('PC disconnected for 6s — treating as partner left');
+            log('PC disconnected for 60s — treating as partner left');
             handlePartnerLeft();
           }
-        }, 6000);
+        }, 60000);
       }
       if (pc.connectionState === 'failed') {
         clearTimeout(disconnectTimerRef.current);
@@ -1268,9 +1293,6 @@ export default function StrangerLinkApp() {
               {/* 🆕 Unread badge */}
               {unreadCount > 0 && (
                 <span className={styles.unreadBadge}>{unreadCount}</span>
-              )}
-              {isActive && callTimer > 0 && (
-                <span className={styles.chatHeaderSub}>⏱ {formatTime(callTimer)}</span>
               )}
             </div>
 
