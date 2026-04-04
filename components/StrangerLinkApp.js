@@ -302,44 +302,63 @@ export default function StrangerLinkApp() {
   }
 
   /* ── WEBRTC ────────────────────────────────────────────────── */
+  // Ref to track the disconnect grace timer so we can cancel it if connection recovers
+  const disconnectTimerRef = useRef(null);
+
   function createPeerConnection() {
-    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+    if (pcRef.current) {
+      pcRef.current.ontrack = null;
+      pcRef.current.onicecandidate = null;
+      pcRef.current.onconnectionstatechange = null;
+      pcRef.current.oniceconnectionstatechange = null;
+      pcRef.current.close();
+      pcRef.current = null;
+    }
     log('Creating PeerConnection...');
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
+    // Create the remote stream container — do NOT assign to srcObject yet
     const remoteStream = new MediaStream();
     remoteStreamRef.current = remoteStream;
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
-      remoteVideoRef.current.muted = false;
-    }
 
-    // Debounce play() to avoid AbortError when tracks arrive rapidly
-    let playDebounce = null;
+    // ── Reliable remote video player ──────────────────────────────
+    const playRemoteVideo = () => {
+      const vid = remoteVideoRef.current;
+      if (!vid) return;
+      // Assign fresh srcObject reference so browser detects the change
+      if (vid.srcObject !== remoteStream) {
+        vid.srcObject = remoteStream;
+      }
+      vid.muted = false;
+      // Always attempt play; if autoplay policy blocks it, fallback to muted then unmute
+      vid.play().catch((err) => {
+        log('RemotePlay blocked: ' + err.name);
+        if (err.name === 'NotAllowedError') {
+          // Muted autoplay is always allowed; unmute after
+          vid.muted = true;
+          vid.play()
+            .then(() => { vid.muted = false; })
+            .catch(() => {});
+        }
+      });
+    };
+
     pc.ontrack = (e) => {
       log(`Track: ${e.track.kind}`);
-      remoteStream.addTrack(e.track);
-      if (e.track.kind === 'audio') startRemoteVisualizer(remoteStream);
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.muted = false;
-        remoteVideoRef.current.srcObject = remoteStream;
-        // Debounce play to avoid AbortError when audio+video arrive back-to-back
-        clearTimeout(playDebounce);
-        playDebounce = setTimeout(() => {
-          if (remoteVideoRef.current && remoteVideoRef.current.paused) {
-            remoteVideoRef.current.play().catch(err => log('Remote play err: ' + err.name));
-          }
-        }, 200);
+      // Only add the track if it's not already in the stream
+      if (!remoteStream.getTracks().find(t => t.id === e.track.id)) {
+        remoteStream.addTrack(e.track);
       }
+      if (e.track.kind === 'audio') startRemoteVisualizer(remoteStream);
+      // Attempt to play as soon as ANY track arrives
+      playRemoteVideo();
     };
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        // 🆕 Connection quality check
         if (e.candidate.candidate.includes('relay')) setConnType('Relay (Secure)');
         else if (e.candidate.candidate.includes('srflx')) setConnType('P2P (Direct)');
-
         fetch('/api/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -349,13 +368,40 @@ export default function StrangerLinkApp() {
     };
 
     pc.onicegatheringstatechange = () => log(`Gathering: ${pc.iceGatheringState}`);
+
     pc.oniceconnectionstatechange = () => {
       log(`ICE: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'failed') { log('ICE failed — restart'); pc.restartIce(); }
+      if (pc.iceConnectionState === 'failed') {
+        log('ICE failed — restarting');
+        pc.restartIce();
+      }
+      // When ICE reaches connected/completed, retry video play in case
+      // ontrack fired before the stream was ready to render
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        setTimeout(playRemoteVideo, 300);
+      }
     };
+
     pc.onconnectionstatechange = () => {
       log(`PC: ${pc.connectionState}`);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') handlePartnerLeft();
+      if (pc.connectionState === 'connected') {
+        // Connection fully established — clear any pending disconnect timer and play
+        clearTimeout(disconnectTimerRef.current);
+        setTimeout(playRemoteVideo, 300);
+      }
+      if (pc.connectionState === 'disconnected') {
+        // 'disconnected' is transient during ICE restarts — give 6s grace period
+        disconnectTimerRef.current = setTimeout(() => {
+          if (pcRef.current && pcRef.current.connectionState === 'disconnected') {
+            log('PC disconnected for 6s — treating as partner left');
+            handlePartnerLeft();
+          }
+        }, 6000);
+      }
+      if (pc.connectionState === 'failed') {
+        clearTimeout(disconnectTimerRef.current);
+        handlePartnerLeft();
+      }
     };
 
     const stream = localStreamRef.current;
@@ -384,16 +430,23 @@ export default function StrangerLinkApp() {
     log(`Offer from ${fromId} (state: ${pcRef.current?.signalingState ?? 'none'})`);
     partnerIdRef.current = fromId;
 
-    // If we already sent an offer (glare condition), polite peer rolls back
+    // ALWAYS create a fresh PC for an incoming offer.
+    // We must not reuse an existing initiator PC — it has wrong state.
+    // Close any glared local offer first.
     if (pcRef.current && pcRef.current.signalingState === 'have-local-offer') {
-      log('Glare: rolling back local offer to accept remote offer');
-      try { await pcRef.current.setLocalDescription({ type: 'rollback' }); } catch {}
+      log('Glare: closing our local PC to accept remote offer');
     }
+    // createPeerConnection() safely closes the old one
+    const pc = createPeerConnection();
 
-    // Only create a fresh PC if one doesn't exist yet
-    const pc = (pcRef.current && pcRef.current.signalingState !== 'closed')
-      ? pcRef.current
-      : createPeerConnection();
+    // Ensure local stream tracks are on this new PC
+    const stream = localStreamRef.current;
+    if (stream) {
+      const existingSenders = pc.getSenders().map(s => s.track?.id);
+      stream.getTracks().forEach(t => {
+        if (!existingSenders.includes(t.id)) pc.addTrack(t, stream);
+      });
+    }
 
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -412,15 +465,16 @@ export default function StrangerLinkApp() {
     const pc = pcRef.current;
     if (!pc) { log('No PC for answer'); return; }
 
-    if (pc.signalingState === 'stable') {
-      log('Answer already applied (state is stable), skipping');
+    // Only apply if we're still waiting for the remote answer
+    if (pc.signalingState !== 'have-local-offer') {
+      log(`Skip answer: not in have-local-offer (current: ${pc.signalingState})`);
       return;
     }
 
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
       await flushIce();
-      log('Remote description set successfully');
+      log('Answer applied — remote description set');
     } catch (err) {
       log('handleAnswer error: ' + err.message);
     }
@@ -808,7 +862,14 @@ export default function StrangerLinkApp() {
             {/* Video Slots */}
 
             {/* Remote */}
-            <div className={styles.videoSlotRemote}>
+            <div className={styles.videoSlotRemote} onClick={() => {
+              // User gesture: unblock autoplay if browser blocked it
+              const vid = remoteVideoRef.current;
+              if (vid && vid.srcObject && vid.paused) {
+                vid.muted = false;
+                vid.play().catch(() => { vid.muted = true; vid.play().catch(() => {}); });
+              }
+            }}>
               <video ref={remoteVideoRef} autoPlay playsInline className={styles.videoRemote} />
               <span className={styles.videoLabel}>Partner</span>
               <div className={`${styles.holographicGlow} ${isActive ? styles.holographicGlowActive : ''}`} />
