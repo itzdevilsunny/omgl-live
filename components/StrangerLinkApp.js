@@ -242,18 +242,24 @@ export default function StrangerLinkApp() {
     const constraints = {
       video: {
         deviceId: selectedVideo ? { exact: selectedVideo } : undefined,
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        facingMode: 'user'
+        width:     { ideal: 1280, min: 640 },
+        height:    { ideal: 720, min: 480 },
+        frameRate: { ideal: 30, min: 15 },
+        facingMode: 'user',
       },
       audio: {
-        deviceId: selectedAudio ? { exact: selectedAudio } : undefined,
+        deviceId:       selectedAudio ? { exact: selectedAudio } : undefined,
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true
+        autoGainControl:  true,
+        sampleRate:      48000,
+        channelCount:    1,   // mono voice — much lower latency than stereo
+        sampleSize:      16,
       },
     };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    // Tell encoder this is live motion, not a static screen capture
+    stream.getVideoTracks().forEach(t => { try { t.contentHint = 'motion'; } catch {} });
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
     startVisualizer(stream);
@@ -298,6 +304,71 @@ export default function StrangerLinkApp() {
         log(`Replacing ${newTrack.kind} track...`);
         await sender.replaceTrack(newTrack);
       }
+    }
+  }
+
+  /* ── QUALITY OPTIMIZATION HELPERS ─────────────────────────── */
+
+  // Set codec order preference BEFORE creating the offer.
+  // Must be called after addTrack() but before createOffer().
+  function applyCodecPreferences(pc) {
+    try {
+      pc.getTransceivers().forEach(transceiver => {
+        const kind = transceiver.sender.track?.kind;
+        if (kind === 'video') {
+          const caps = RTCRtpSender.getCapabilities?.('video');
+          if (!caps) return;
+          // Prefer H264 (hardware accelerated on most devices) → VP9 → VP8
+          const h264  = caps.codecs.filter(c => c.mimeType === 'video/H264');
+          const vp9   = caps.codecs.filter(c => c.mimeType === 'video/VP9');
+          const vp8   = caps.codecs.filter(c => c.mimeType === 'video/VP8');
+          const rest  = caps.codecs.filter(c => !['video/H264','video/VP9','video/VP8'].includes(c.mimeType));
+          const ordered = [...h264, ...vp9, ...vp8, ...rest];
+          if (ordered.length && transceiver.setCodecPreferences) {
+            transceiver.setCodecPreferences(ordered);
+          }
+        }
+        if (kind === 'audio') {
+          const caps = RTCRtpSender.getCapabilities?.('audio');
+          if (!caps) return;
+          // Prefer Opus (lowest latency, best quality for voice)
+          const opus = caps.codecs.filter(c => c.mimeType === 'audio/opus');
+          const rest = caps.codecs.filter(c => c.mimeType !== 'audio/opus');
+          if (opus.length && transceiver.setCodecPreferences) {
+            transceiver.setCodecPreferences([...opus, ...rest]);
+          }
+        }
+      });
+    } catch (e) {
+      log('applyCodecPreferences skipped: ' + e.message);
+    }
+  }
+
+  // Apply high-quality encoding parameters AFTER ICE connects.
+  // setParameters() only works on an active sender post-connection.
+  function applyQualitySettings(pc) {
+    try {
+      pc.getSenders().forEach(sender => {
+        if (!sender.track) return;
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) {
+          params.encodings = [{}];
+        }
+        if (sender.track.kind === 'video') {
+          params.encodings[0].maxBitrate     = 2_500_000; // 2.5 Mbps — crisp 720p
+          params.encodings[0].maxFramerate   = 30;
+          params.encodings[0].priority        = 'high';
+          params.encodings[0].networkPriority = 'high';
+        } else if (sender.track.kind === 'audio') {
+          params.encodings[0].maxBitrate      = 128_000;  // 128 kbps Opus
+          params.encodings[0].priority        = 'high';
+          params.encodings[0].networkPriority = 'high';
+        }
+        sender.setParameters(params).catch(() => {});
+      });
+      log('Quality settings applied (2.5Mbps video, 128kbps audio)');
+    } catch (e) {
+      log('applyQualitySettings skipped: ' + e.message);
     }
   }
 
@@ -378,6 +449,8 @@ export default function StrangerLinkApp() {
       // When ICE reaches connected/completed, retry video play in case
       // ontrack fired before the stream was ready to render
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        // Apply encoding params AFTER ICE connects — setParameters() only works post-connection
+        setTimeout(() => applyQualitySettings(pc), 500);
         setTimeout(playRemoteVideo, 300);
       }
     };
@@ -385,9 +458,10 @@ export default function StrangerLinkApp() {
     pc.onconnectionstatechange = () => {
       log(`PC: ${pc.connectionState}`);
       if (pc.connectionState === 'connected') {
-        // Connection fully established — clear any pending disconnect timer and play
+        // Connection fully established — clear disconnect timer, play video, boost quality
         clearTimeout(disconnectTimerRef.current);
         setTimeout(playRemoteVideo, 300);
+        setTimeout(() => applyQualitySettings(pc), 600);
       }
       if (pc.connectionState === 'disconnected') {
         // 'disconnected' is transient during ICE restarts — give 6s grace period
@@ -492,8 +566,11 @@ export default function StrangerLinkApp() {
     await getLocalStream();
     startTimer();
     if (isInitiator) {
-      await new Promise(r => setTimeout(r, 800));
+      // 200ms: enough for the non-initiator to subscribe to Pusher, but fast
+      await new Promise(r => setTimeout(r, 200));
       const pc = createPeerConnection();
+      // Set codec preferences BEFORE creating the offer (must be done after addTrack)
+      applyCodecPreferences(pc);
       const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
       await sig(partnerIdRef.current, 'offer', offer);
