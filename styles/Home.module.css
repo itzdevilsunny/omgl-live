@@ -603,18 +603,25 @@
 }
 
 .idleView {
-  position: absolute;
+  position: fixed;
   inset: 0;
+  background: radial-gradient(circle at center, var(--surface1) 0%, #000 100%);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 60px;
-  padding: 40px;
-  z-index: 200 !important;
-  background-color: var(--bg);
-  background-image: radial-gradient(circle at 50% 50%, rgba(var(--accent-rgb), 0.08), transparent 80%);
+  z-index: 500;
   backdrop-filter: blur(20px);
-  animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 20px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .idleView {
+    justify-content: flex-start;
+    padding: 60px 20px 100px;
+  }
 }
 
 .interestOverlay {
@@ -1253,19 +1260,6 @@
   z-index: 10;
 }
 
-.idleView {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  padding: 40px;
-  background: radial-gradient(circle at center, rgba(124,106,255,0.05) 0%, transparent 70%);
-  z-index: 60;
-  pointer-events: auto;
-  backdrop-filter: blur(4px);
-}
-
 /* ── SKELETON & SPINNER ───────────────────────────────────────── */
 .searchingState {
   display: flex;
@@ -1318,13 +1312,29 @@
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
-
 @media (max-width: 1024px) {
-  .idleView { flex-direction: column; text-align: center; gap: 40px; padding: 20px; }
-  .heroSection { text-align: center; display: flex; flex-direction: column; align-items: center; }
-  .heroTitle { font-size: 36px; }
-  .featuresGrid { display: none; }
-  .searchCard { width: 100%; max-width: 400px; }
+  .idleView { 
+    flex-direction: column; 
+    text-align: center; 
+    gap: 20px; 
+    padding: 40px 20px 80px; 
+  }
+  .heroSection { margin-top: 0; padding: 0; text-align: center; }
+  .heroTitle { font-size: 28px !important; letter-spacing: -1px; margin-bottom: 12px; }
+  .heroSubtitle { font-size: 14px !important; line-height: 1.4; opacity: 0.8; margin-bottom: 20px; }
+  .searchCard { 
+    width: 100%; 
+    padding: 24px 20px; 
+    margin-top: 20px;
+    border-radius: var(--radius-md);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .interestTitle { font-size: 18px !important; }
+  .interestSubtitle { font-size: 10px !important; margin-bottom: 12px; }
+  .interestTags { gap: 6px; justify-content: center; }
+  .tagChip { padding: 4px 10px; font-size: 10px; }
+  .btnStart { width: 100%; justify-content: center; padding: 14px; font-size: 14px; margin-top: 10px; }
 }
 
 /* ── PREMIUM FINISHING ─────────────────────────────────────── */
@@ -1395,7 +1405,8 @@
   .main {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;
-    height: calc(100vh - 52px);
+    height: calc(100svh - 52px);
+    height: calc(100dvh - 52px);
   }
 
   .rightPanel {

@@ -40,7 +40,6 @@ export default function StrangerLinkApp() {
   const [messages,      setMessages]      = useState([]);
   const [inputMsg,      setInputMsg]      = useState('');
   const [partnerTyping, setPartnerTyping] = useState(false);
-  const [interests,     setInterests]     = useState('');
   const [activeTags,    setActiveTags]    = useState([]);
   const [debugMsg,      setDebugMsg]      = useState('');
   const [unreadCount,   setUnreadCount]   = useState(0);     // 🆕 unread badge
@@ -318,12 +317,10 @@ export default function StrangerLinkApp() {
       remoteStream.addTrack(e.track);
       if (e.track.kind === 'audio') startRemoteVisualizer(remoteStream);
       if (remoteVideoRef.current) {
-        if (remoteVideoRef.current.srcObject !== remoteStream) {
-          remoteVideoRef.current.srcObject = remoteStream;
-        }
-        // ✅ AUDIO FIX: ensure remote video is never muted (only local is muted for echo prevention)
+        // ✅ AUDIO/VIDEO FIX: ensure remote video is never muted (only local is muted for echo prevention)
         remoteVideoRef.current.muted = false;
-        remoteVideoRef.current.play().catch(() => {});
+        remoteVideoRef.current.srcObject = remoteStream;
+        remoteVideoRef.current.play().catch(e => log('Remote video play error: ' + e));
       }
     };
 
@@ -377,6 +374,13 @@ export default function StrangerLinkApp() {
     log(`Offer from ${fromId}`);
     partnerIdRef.current = fromId;
     const pc = createPeerConnection();
+    
+    // Guard: already have a remote description?
+    if (pc.signalingState !== 'stable') {
+      log('Conflict: PeerConnection not stable for offer. Current: ' + pc.signalingState);
+      return;
+    }
+
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     await flushIce();
     const answer = await pc.createAnswer();
@@ -389,6 +393,12 @@ export default function StrangerLinkApp() {
     log('Answer received');
     const pc = pcRef.current;
     if (!pc) return;
+    
+    if (pc.signalingState !== 'have-local-offer') {
+      log('Ignore: Signaling State not have-local-offer. Current: ' + pc.signalingState);
+      return;
+    }
+
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
     await flushIce();
   }
@@ -609,9 +619,7 @@ export default function StrangerLinkApp() {
     typingTimer.current = setTimeout(() => sig(partnerIdRef.current, 'stop-typing', {}), 1500);
   }
 
-  function toggleTag(tag) {
-    setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
-  }
+
 
   /* ── EFFECTS ────────────────────────────────────────────────── */
   useEffect(() => {
