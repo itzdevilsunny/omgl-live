@@ -35,21 +35,6 @@
 
 /* ── Light theme ── */
 [data-theme="light"] {
-  --bg: #ffffff;
-  --surface: #f7f7f7;
-  --surface2: #efefef;
-  --surface3: #e5e5e5;
-  --border: rgba(0,0,0,0.06);
-  --border-strong: rgba(0,0,0,0.1);
-  --accent: #ff6700;           /* Keep orange accent */
-  --accent-rgb: 255,103,0;
-  --accent-glow: rgba(255,103,0,0.1);
-  --accent2: #121212;
-  --accent3: #ff6700;
-  --accent3-glow: rgba(255,103,0,0.08);
-  --text: #121212;
-  --text-muted: #666666;
-  --text-dim: #a0a0a0;
   --green: #16a34a;
   --green-glow: rgba(22,163,74,0.12);
   --red: #dc2626;

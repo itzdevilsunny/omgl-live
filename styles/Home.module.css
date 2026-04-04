@@ -1157,15 +1157,18 @@
 
 /* ── HERO & LANDING ─────────────────────────────────────────── */
 .idleView {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 80px;
   width: 100%;
-  max-width: 1100px;
   padding: 40px;
-  margin: auto;
+  background: radial-gradient(circle at center, rgba(18,18,18,0) 0%, rgba(18,18,18,0.8) 100%);
+  z-index: 50;
+  overflow-y: auto;
   animation: fadeIn 0.8s ease-out;
 }
 
@@ -1314,25 +1317,30 @@
   .idleView { 
     flex-direction: column; 
     text-align: center; 
-    gap: 20px; 
-    padding: 40px 20px 80px; 
+    gap: 12px; 
+    padding: 20px 16px 40px; 
+    justify-content: flex-start;
+    background: radial-gradient(circle at top, rgba(18,18,18,0.2) 0%, rgba(18,18,18,0.9) 80%);
   }
-  .heroSection { margin-top: 0; padding: 0; text-align: center; }
-  .heroTitle { font-size: 28px !important; letter-spacing: -1px; margin-bottom: 12px; }
-  .heroSubtitle { font-size: 14px !important; line-height: 1.4; opacity: 0.8; margin-bottom: 20px; }
+  .heroSection { margin-top: 10px; padding: 0; text-align: center; }
+  .heroTitle { font-size: 24px !important; letter-spacing: -1px; margin-bottom: 8px; }
+  .heroSubtitle { font-size: 13px !important; line-height: 1.4; opacity: 0.8; margin-bottom: 12px; max-width: 100%; }
+  .featuresGrid { display: none; } /* Hide features on mobile to save space */
   .searchCard { 
     width: 100%; 
-    padding: 24px 20px; 
-    margin-top: 20px;
+    padding: 20px 16px; 
+    margin-top: 10px;
     border-radius: var(--radius-md);
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(30,30,30,0.8);
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(20px);
   }
-  .interestTitle { font-size: 18px !important; }
+  .interestTitle { font-size: 16px !important; margin-bottom: 4px; }
   .interestSubtitle { font-size: 10px !important; margin-bottom: 12px; }
   .interestTags { gap: 6px; justify-content: center; }
   .tagChip { padding: 4px 10px; font-size: 10px; }
-  .btnStart { width: 100%; justify-content: center; padding: 14px; font-size: 14px; margin-top: 10px; }
+  .interestInput { padding: 10px; font-size: 12px; height: 38px; }
+  .btnStart { width: 100%; justify-content: center; padding: 16px; font-size: 15px; margin-top: 12px; font-weight: 700; }
 }
 
 /* ── PREMIUM FINISHING ─────────────────────────────────────── */
