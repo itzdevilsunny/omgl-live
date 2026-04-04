@@ -976,6 +976,67 @@
 }
 
 /* ── RESPONSIVE ──────────────────────────────────────────────── */
+/* ── SETTINGS ────────────────────────────────────────────────── */
+.settingsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.settingsLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.settingsSelect {
+  width: 100%;
+  background: var(--surface3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 10px 14px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 5 3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+:global([data-theme="light"]) .settingsSelect {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 5 3 3 3-3'/%3E%3C/svg%3E");
+}
+
+.settingsSelect:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+/* ── AUDIO METER ─────────────────────────────────────────────── */
+.audioMeterContainer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: rgba(0,0,0,0.3);
+  z-index: 15;
+  overflow: hidden;
+}
+
+.audioMeterBar {
+  height: 100%;
+  background: var(--accent3);
+  box-shadow: 0 0 8px var(--accent3);
+  transition: width 0.08s ease;
+}
+
 @media (max-width: 768px) {
   .header { padding: 0 14px; height: 52px; }
   .tagline { display: none; }

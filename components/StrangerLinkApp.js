@@ -47,6 +47,12 @@ export default function StrangerLinkApp() {
   const [callTimer,     setCallTimer]     = useState(0);     // 🆕 session timer (seconds)
   const [reactions,     setReactions]     = useState([]);    // 🆕 floating emoji [{id,emoji,x,y}]
   const [showEmojiBar,  setShowEmojiBar]  = useState(false); // 🆕 emoji picker toggle
+  const [showSettings,  setShowSettings]  = useState(false); // 🆕 settings modal
+  const [videoDevices,  setVideoDevices]  = useState([]);    // 🆕 list of cameras
+  const [audioDevices,  setAudioDevices]  = useState([]);    // 🆕 list of mics
+  const [selectedVideo, setSelectedVideo] = useState('');    // 🆕 chosen cameraId
+  const [selectedAudio, setSelectedAudio] = useState('');    // 🆕 chosen micId
+  const [audioLevel,    setAudioLevel]    = useState(0);     // 🆕 for visualizer
 
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -75,6 +81,9 @@ export default function StrangerLinkApp() {
   const timerRef        = useRef(null);   // 🆕 interval for call timer
   const chatScrollRef   = useRef(null);   // 🆕 for unread badge logic
   const reactionIdRef   = useRef(0);      // 🆕 unique ID for floating reactions
+  const audioContextRef = useRef(null);   // 🆕 for visualizer
+  const audioAnalyserRef = useRef(null);  // 🆕 for visualizer
+  const audioAnimRef    = useRef(null);   // 🆕 for visualizer
 
   /* ── UTILS ─────────────────────────────────────────────────── */
   function updateStatus(s) { statusRef.current = s; setStatus(s); }
@@ -119,16 +128,112 @@ export default function StrangerLinkApp() {
     setTimeout(() => setReactions(prev => prev.filter(r => r.id !== id)), 2600);
   }
 
+  /* ── DEVICE DISCOVERY ─────────────────────────────────────── */
+  const refreshDevices = useCallback(async () => {
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const vids = devs.filter(d => d.kind === 'videoinput');
+      const auds = devs.filter(d => d.kind === 'audioinput');
+      setVideoDevices(vids);
+      setAudioDevices(auds);
+      if (vids.length && !selectedVideo) setSelectedVideo(vids[0].deviceId);
+      if (auds.length && !selectedAudio) setSelectedAudio(auds[0].deviceId);
+    } catch {}
+  }, [selectedVideo, selectedAudio]);
+
+  /* ── AUDIO VISUALIZER ─────────────────────────────────────── */
+  function startVisualizer(stream) {
+    if (!stream.getAudioTracks().length) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      audioContextRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const ana = ctx.createAnalyser();
+      ana.fftSize = 256;
+      src.connect(ana);
+      audioAnalyserRef.current = ana;
+
+      const data = new Uint8Array(ana.frequencyBinCount);
+      const update = () => {
+        ana.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        setAudioLevel(avg);
+        audioAnimRef.current = requestAnimationFrame(update);
+      };
+      update();
+    } catch {}
+  }
+
+  function stopVisualizer() {
+    if (audioAnimRef.current) cancelAnimationFrame(audioAnimRef.current);
+    if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
+    setAudioLevel(0);
+  }
+
   /* ── MEDIA ─────────────────────────────────────────────────── */
   async function getLocalStream() {
     if (localStreamRef.current) return localStreamRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+    const constraints = {
+      video: {
+        deviceId: selectedVideo ? { exact: selectedVideo } : undefined,
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: 'user'
+      },
+      audio: {
+        deviceId: selectedAudio ? { exact: selectedAudio } : undefined,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    startVisualizer(stream);
     return stream;
+  }
+
+  /* ── TRACK SWITCHING ───────────────────────────────────────── */
+  async function switchDevice(kind, deviceId) {
+    if (kind === 'video') setSelectedVideo(deviceId);
+    else setSelectedAudio(deviceId);
+
+    if (!localStreamRef.current) return;
+
+    // Stop old tracks of that kind
+    localStreamRef.current.getTracks()
+      .filter(t => t.kind === (kind === 'video' ? 'video' : 'audio'))
+      .forEach(t => t.stop());
+
+    // Get new sub-stream
+    const constraints = kind === 'video'
+      ? { video: { deviceId: { exact: deviceId }, width: 1280, height: 720 } }
+      : { audio: { deviceId: { exact: deviceId } } };
+
+    const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const newTrack = newStream.getTracks()[0];
+
+    // Update local stream ref
+    const tracks = localStreamRef.current.getTracks();
+    const otherTrack = tracks.find(t => t.kind !== newTrack.kind);
+    const combined = new MediaStream([newTrack, otherTrack].filter(Boolean));
+    localStreamRef.current = combined;
+    if (localVideoRef.current) localVideoRef.current.srcObject = combined;
+
+    // If visualizing audio, restart
+    if (kind === 'audio') { stopVisualizer(); startVisualizer(combined); }
+
+    // 🔥 HOT SWAP: replace track in RTCPeerConnection
+    if (pcRef.current) {
+      const senders = pcRef.current.getSenders();
+      const sender = senders.find(s => s.track?.kind === newTrack.kind);
+      if (sender) {
+        log(`Replacing ${newTrack.kind} track...`);
+        await sender.replaceTrack(newTrack);
+      }
+    }
   }
 
   /* ── WEBRTC ────────────────────────────────────────────────── */
@@ -356,6 +461,7 @@ export default function StrangerLinkApp() {
 
   async function stopChat() {
     stopTimer();
+    stopVisualizer();
     if (pollingRef.current) clearInterval(pollingRef.current);
     if (partnerIdRef.current) fetch('/api/leave', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ partnerId: partnerIdRef.current, userId }) }).catch(() => {});
     pcRef.current?.close(); pcRef.current = null;
@@ -368,6 +474,19 @@ export default function StrangerLinkApp() {
     disconnectSignaling();
     updateStatus('idle');
     setMessages([]); setDebugMsg(''); setUnreadCount(0); setReactions([]);
+  }
+
+  /* ── REPORTING ─────────────────────────────────────────────── */
+  async function reportUser() {
+    if (!partnerIdRef.current) return;
+    const pId = partnerIdRef.current;
+    log(`Reporting user ${pId}...`);
+    // Optional: send to backend
+    fetch('/api/report', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ partnerId: pId, userId }) }).catch(() => {});
+    setMessages(m => [...m, { from: 'system', text: '🚩 Partner reported. Disconnecting...' }]);
+    setTimeout(() => {
+      skipPartner();
+    }, 1200);
   }
 
   function toggleMute() {
@@ -404,6 +523,11 @@ export default function StrangerLinkApp() {
   /* ── EFFECTS ────────────────────────────────────────────────── */
   useEffect(() => {
     setMounted(true);
+    refreshDevices();
+    
+    // Listen for device changes (plug/unplug)
+    navigator.mediaDevices.ondevicechange = refreshDevices;
+
     // Load saved theme
     try {
       const saved = localStorage.getItem('sl-theme') || 'dark';
@@ -415,7 +539,7 @@ export default function StrangerLinkApp() {
       if (statusRef.current !== 'idle') stopChat();
       stopTimer();
     };
-  }, []);
+  }, [refreshDevices]);
 
   // Auto-scroll chat to bottom and reset unread
   useEffect(() => {
@@ -462,6 +586,11 @@ export default function StrangerLinkApp() {
                 ⏱ {formatTime(callTimer)}
               </div>
             )}
+
+            {/* 🆕 Settings toggle */}
+            <button className={styles.themeBtn} onClick={() => setShowSettings(true)} title="Media Settings">
+              ⚙️
+            </button>
 
             {/* 🆕 Theme toggle */}
             <button className={styles.themeBtn} onClick={toggleTheme} title="Toggle theme">
@@ -520,6 +649,16 @@ export default function StrangerLinkApp() {
             <div className={styles.videoSlotLocal}>
               <video ref={localVideoRef} autoPlay playsInline muted className={styles.videoLocal} />
               <span className={styles.videoLabel}>You</span>
+              
+              {/* 🆕 Audio Visualizer Bar */}
+              {localStreamRef.current && (
+                <div className={styles.audioMeterContainer}>
+                  <div 
+                    className={styles.audioMeterBar} 
+                    style={{ width: `${Math.min(100, (audioLevel / 128) * 100)}%` }} 
+                  />
+                </div>
+              )}
             </div>
 
             {/* 🆕 Floating emoji reactions on video */}
@@ -616,6 +755,9 @@ export default function StrangerLinkApp() {
                     </button>
                     <button className={`${styles.btnIcon} ${isCamOff ? styles.btnIconActive : ''}`} onClick={toggleCam} title={isCamOff ? 'Cam on' : 'Cam off'}>
                       {isCamOff ? '🚫' : '📷'}
+                    </button>
+                    <button className={styles.btnIcon} onClick={reportUser} title="Report User">
+                      🚩
                     </button>
                     <div className={styles.divider} />
                   </>
@@ -731,6 +873,58 @@ export default function StrangerLinkApp() {
         <footer className={styles.footer}>
           StrangerLink · Be respectful · 18+ only · Do not share personal info
         </footer>
+
+        {/* 🆕 SETTINGS MODAL */}
+        {showSettings && (
+          <div className={styles.interestOverlay} style={{ zIndex: 1000 }}>
+            <div className={styles.interestCard} style={{ maxWidth: '360px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 className={styles.interestTitle}>Media Settings</h2>
+                <button 
+                  className={styles.btnIcon} 
+                  onClick={() => setShowSettings(false)}
+                  style={{ width: '32px', height: '32px' }}
+                >✕</button>
+              </div>
+              
+              <div className={styles.settingsGroup}>
+                <label className={styles.settingsLabel}>Camera</label>
+                <select 
+                  className={styles.settingsSelect}
+                  value={selectedVideo}
+                  onChange={(e) => switchDevice('video', e.target.value)}
+                >
+                  {videoDevices.map(d => (
+                    <option key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${d.deviceId.slice(0,5)}`}</option>
+                  ))}
+                  {videoDevices.length === 0 && <option disabled>No cameras found</option>}
+                </select>
+              </div>
+
+              <div className={styles.settingsGroup}>
+                <label className={styles.settingsLabel}>Microphone</label>
+                <select 
+                  className={styles.settingsSelect}
+                  value={selectedAudio}
+                  onChange={(e) => switchDevice('audio', e.target.value)}
+                >
+                  {audioDevices.map(d => (
+                    <option key={d.deviceId} value={d.deviceId}>{d.label || `Mic ${d.deviceId.slice(0,5)}`}</option>
+                  ))}
+                  {audioDevices.length === 0 && <option disabled>No microphones found</option>}
+                </select>
+              </div>
+
+              <div className={styles.debugHud} style={{ position: 'static', marginTop: '10px' }}>
+                Peer ID: {userId.slice(0,8)}...
+              </div>
+
+              <button className={styles.btnStart} onClick={() => setShowSettings(false)} style={{ width: '100%', justifyContent: 'center' }}>
+                Done
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
