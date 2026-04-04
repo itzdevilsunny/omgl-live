@@ -598,6 +598,24 @@
   align-items: center;
   justify-content: center;
   background: rgba(7,7,13,0.94);
+  z-index: 100;
+  backdrop-filter: blur(8px);
+}
+
+.idleView {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 60px;
+  padding: 40px;
+  z-index: 200 !important;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle at 50% 50%, rgba(var(--accent-rgb), 0.08), transparent 80%);
+  backdrop-filter: blur(20px);
+  animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
   z-index: 15;
   padding: 24px;
   backdrop-filter: blur(6px);
@@ -1140,14 +1158,9 @@
 }
 
 .heroSection {
-  flex: 1;
-  text-align: left;
-}
-
-.heroSection {
   text-align: left;
   max-width: 600px;
-  z-index: 10;
+  flex: 1;
 }
 
 .heroTitle {
