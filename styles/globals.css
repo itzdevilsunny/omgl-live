@@ -30,8 +30,6 @@
   --radius: 18px;
   --radius-sm: 10px;
   --radius-xs: 6px;
-  --font-display: 'Syne', sans-serif;
-  --font-mono: 'DM Mono', monospace;
   --transition: 0.22s cubic-bezier(0.4,0,0.2,1);
 }
 

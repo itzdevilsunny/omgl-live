@@ -30,7 +30,12 @@ export default function Home() {
         <title>StrangerLink — World's Fastest Video Discovery</title>
         <meta name="description" content="Connect instantly with strangers worldwide. 100% anonymous, ephemeral, and encrypted video chat with premium WebRTC technology." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#0a0a0c" />
         
+        {/* PWA Manifest */}
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
         {/* Open Graph / Facebook */}
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://strangerlink.chat/" />
