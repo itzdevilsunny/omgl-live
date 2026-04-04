@@ -50,15 +50,15 @@ export default async function handler(req, res) {
             const roomId = `room-i-${now}-${Math.random().toString(36).slice(2, 6)}`;
             
             // Trigger both
-            await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId });
-            await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId });
+            await pusher.trigger(`user-${userId}`, 'matched', { roomId, isInitiator: false, partnerId, matchedTag: sanitizedTag });
+            await pusher.trigger(`user-${partnerId}`, 'matched', { roomId, isInitiator: true, partnerId: userId, matchedTag: sanitizedTag });
             
             // Cleanup my own presence
             await redis.zrem('active_queue', userId);
             await redis.zrem('active_queue', partnerId);
             for (const t of interests) await redis.zrem(`waiting_tag:${t.toLowerCase().trim()}`, userId);
 
-            return res.status(200).json({ waiting: false, partnerId, trending, onlineCount });
+            return res.status(200).json({ waiting: false, partnerId, trending, onlineCount, matchedTag: sanitizedTag });
           }
         }
       }

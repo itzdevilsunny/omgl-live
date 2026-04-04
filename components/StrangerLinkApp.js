@@ -55,7 +55,11 @@ export default function StrangerLinkApp() {
   const [audioLevel,    setAudioLevel]    = useState(0);     // 🆕 for visualizer
   const [onlineCount,   setOnlineCount]   = useState(0);     // 🆕 total users
   const [trendingTags,  setTrendingTags]  = useState([]);    // 🆕 popular interests
-  const [connType,      setConnType]      = useState('Direct'); // 🆕 P2P or Relay
+  const [connType,      setConnType]      = useState('Direct'); // P2P or Relay
+  const [soundEnabled,  setSoundEnabled]  = useState(true);     // sound toggle
+  const [sharedTag,     setSharedTag]     = useState('');      // 🆕 the shared interest tag
+  const [pusherStatus,  setPusherStatus]  = useState('disconnected'); // 🆕 signaling state
+  const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);      // 🆕 for remote visualization
 
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -122,13 +126,11 @@ export default function StrangerLinkApp() {
     if (partnerIdRef.current) sig(partnerIdRef.current, 'reaction', { emoji });
   }
 
-  function spawnReaction(emoji, isLocal) {
-    const id = ++reactionIdRef.current;
-    // Random horizontal position
-    const x = 10 + Math.random() * 60;
-    const y = 30 + Math.random() * 40;
-    setReactions(prev => [...prev, { id, emoji, x, y }]);
-    setTimeout(() => setReactions(prev => prev.filter(r => r.id !== id)), 2600);
+  function spawnReaction(emoji, isLocal = true) {
+    if (!isLocal) playBeep('reaction');
+    const id = Date.now();
+    setReactions(prev => [...prev, { id, emoji, left: Math.random() * 80 + 10 }]);
+    setTimeout(() => setReactions(prev => prev.filter(r => r.id !== id)), 3000);
   }
 
   /* ── DEVICE DISCOVERY ─────────────────────────────────────── */
@@ -143,6 +145,34 @@ export default function StrangerLinkApp() {
       if (auds.length && !selectedAudio) setSelectedAudio(auds[0].deviceId);
     } catch {}
   }, [selectedVideo, selectedAudio]);
+
+  function playBeep(type) {
+    if (!soundEnabled) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      if (type === 'match') {
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+      } else if (type === 'msg') {
+        osc.frequency.setValueAtTime(660, ctx.currentTime);
+        gain.gain.setValueAtTime(0.05, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+      } else if (type === 'reaction') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.03, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      }
+      osc.start(); osc.stop(ctx.currentTime + 0.2);
+    } catch {}
+  }
 
   /* ── AUDIO VISUALIZER ─────────────────────────────────────── */
   function startVisualizer(stream) {
@@ -172,6 +202,27 @@ export default function StrangerLinkApp() {
     if (audioAnimRef.current) cancelAnimationFrame(audioAnimRef.current);
     if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     setAudioLevel(0);
+    setRemoteAudioLevel(0);
+  }
+
+  function startRemoteVisualizer(stream) {
+    if (!stream.getAudioTracks().length) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream);
+      const ana = ctx.createAnalyser();
+      ana.fftSize = 256;
+      src.connect(ana);
+      const data = new Uint8Array(ana.frequencyBinCount);
+      const update = () => {
+        if (statusRef.current !== 'connected') return;
+        ana.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        setRemoteAudioLevel(avg);
+        requestAnimationFrame(update);
+      };
+      update();
+    } catch {}
   }
 
   /* ── MEDIA ─────────────────────────────────────────────────── */
@@ -253,6 +304,7 @@ export default function StrangerLinkApp() {
     pc.ontrack = (e) => {
       log(`Track: ${e.track.kind}`);
       remoteStream.addTrack(e.track);
+      if (e.track.kind === 'audio') startRemoteVisualizer(remoteStream);
       if (remoteVideoRef.current) {
         if (remoteVideoRef.current.srcObject !== remoteStream) {
           remoteVideoRef.current.srcObject = remoteStream;
@@ -352,18 +404,29 @@ export default function StrangerLinkApp() {
 
   /* ── PUSHER ─────────────────────────────────────────────────── */
   function connectSignaling() {
-    if (pusherRef.current) return;
-    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, { cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER });
-    pusherRef.current = pusher;
+    if (!pusherRef.current) {
+      log('Signaling client not ready!');
+      return;
+    }
+    const pusher = pusherRef.current;
+    
+    // Unsubscribe from old channel if exists
+    pusher.unsubscribe(`user-${userId}`);
     const ch = pusher.subscribe(`user-${userId}`);
 
-    ch.bind('matched', async ({ roomId, isInitiator, partnerId }) => {
-      log(`Matched! room=${roomId} init=${isInitiator}`);
+
+    ch.bind('pusher:subscription_succeeded', () => setPusherStatus('connected'));
+    ch.bind('pusher:subscription_error', () => setPusherStatus('error'));
+
+    ch.bind('matched', async ({ roomId, isInitiator, partnerId, matchedTag }) => {
+      log(`Matched! room=${roomId} init=${isInitiator} tag=${matchedTag}`);
       roomIdRef.current = roomId;
       if (partnerId) partnerIdRef.current = partnerId;
       if (pollingRef.current) clearInterval(pollingRef.current);
+      playBeep('match');
+      if (matchedTag) setSharedTag(matchedTag);
       updateStatus('connected');
-      setMessages([{ from: 'system', text: '🔗 Connected to a stranger!' }]);
+      setMessages([{ from: 'system', text: `🔗 Connected! ${matchedTag ? `Matched on #${matchedTag}` : 'Found a stranger.'}` }]);
       setUnreadCount(0);
       await startCall(isInitiator);
     });
@@ -375,6 +438,7 @@ export default function StrangerLinkApp() {
       else if (type === 'ice')         await handleIce(data);
       else if (type === 'reaction')    spawnReaction(data.emoji, false);  // 🆕
       else if (type === 'chat' && statusRef.current === 'connected') {
+        playBeep('msg');
         setMessages(m => [...m, { from: 'them', text: data.text }]);
         setPartnerTyping(false);
         // 🆕 Increment unread if user has scrolled up
@@ -483,7 +547,7 @@ export default function StrangerLinkApp() {
     remoteStreamRef.current = null;
     disconnectSignaling();
     updateStatus('idle');
-    setMessages([]); setDebugMsg(''); setUnreadCount(0); setReactions([]);
+    setMessages([]); setDebugMsg(''); setUnreadCount(0); setReactions([]); setSharedTag('');
   }
 
   /* ── REPORTING ─────────────────────────────────────────────── */
@@ -545,16 +609,32 @@ export default function StrangerLinkApp() {
       document.documentElement.setAttribute('data-theme', saved);
     } catch { document.documentElement.setAttribute('data-theme', 'dark'); }
 
+    // Initialize Pusher on mount
+    if (!pusherRef.current && process.env.NEXT_PUBLIC_PUSHER_KEY) {
+      log('Initializing P2P Signaling...');
+      pusherRef.current = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
+        cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'mt1',
+        forceTLS: true
+      });
+    }
+
     return () => {
       if (statusRef.current !== 'idle') stopChat();
       stopTimer();
+      if (pusherRef.current) {
+        pusherRef.current.disconnect();
+        pusherRef.current = null;
+      }
     };
-  }, [refreshDevices]);
+  }, [refreshDevices, userId]);
 
   /* ── ADMIN BROADCASTS ─────────────────────────────────────── */
   useEffect(() => {
-    if (!mounted) return;
-    const adminChannel = pusherRef.current.subscribe('global-announcements');
+    if (!mounted || !pusherRef.current) return;
+    
+    const pusher = pusherRef.current;
+    const adminChannel = pusher.subscribe('global-announcements');
+    
     adminChannel.bind('message', (data) => {
       const msg = {
         id: Date.now() + Math.random(),
@@ -602,7 +682,8 @@ export default function StrangerLinkApp() {
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
       </Head>
 
-      <div className={styles.container}>
+      <div className={`${styles.container} ${theme === 'light' ? styles.lightTheme : ''}`}>
+        <div className={styles.noiseOverlay} />
 
         {/* ── HEADER ─────────────────────────────────────────── */}
         <header className={styles.header}>
@@ -653,8 +734,25 @@ export default function StrangerLinkApp() {
 
             {/* Remote */}
             <div className={styles.videoSlotRemote}>
-              {/* ✅ AUDIO FIX: No 'muted' here — only local video is muted to prevent echo */}
               <video ref={remoteVideoRef} autoPlay playsInline className={styles.videoRemote} />
+              <span className={styles.videoLabel}>Partner</span>
+              <div className={`${styles.holographicGlow} ${isActive ? styles.holographicGlowActive : ''}`} />
+              {!isActive && (
+                <div className={styles.videoOverlay}>
+                  {isSearching ? (
+                    <div className={styles.searchingState}>
+                      <div className={styles.holographicBeam} />
+                      <div className={styles.spinner} />
+                      <p className={styles.searchingText}>Establishing Link...</p>
+                      <div className={styles.skeletonPulse} />
+                    </div>
+                  ) : (
+                    <div className={styles.idleState}>
+                      <p>Connect and start talking</p>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className={styles.videoVignette} />
 
               {/* Status indicator */}
@@ -667,8 +765,23 @@ export default function StrangerLinkApp() {
                 </div>
               )}
 
+              {/* 🆕 Shared Interest Badge */}
+              {isActive && sharedTag && (
+                <div className={styles.sharedInterestBadge}>
+                  <span className={styles.sharedTagIcon}>🏷️</span>
+                  Matched on #{sharedTag}
+                </div>
+              )}
+
               {/* Debug HUD */}
-              {debugMsg && isActive && <div className={styles.debugHud}>{debugMsg}</div>}
+              {isActive && (
+                <div className={styles.debugHud}>
+                  <div className={styles.debugRow}><span>SIG:</span> <span style={{ color: pusherStatus === 'connected' ? 'var(--green)' : 'var(--red)' }}>{pusherStatus.toUpperCase()}</span></div>
+                  <div className={styles.debugRow}><span>NET:</span> {connType}</div>
+                  <div className={styles.debugRow}><span>R-AUD:</span> {Math.round(remoteAudioLevel)}</div>
+                  {debugMsg && <div className={styles.debugRow}><span>LOG:</span> {debugMsg}</div>}
+                </div>
+              )}
 
               {/* Placeholder */}
               {!isActive && (
@@ -681,8 +794,6 @@ export default function StrangerLinkApp() {
                   </div>
                 </div>
               )}
-
-              <span className={styles.videoLabel}>Stranger</span>
             </div>
 
             {/* PiP Local */}
@@ -732,7 +843,9 @@ export default function StrangerLinkApp() {
             {status === 'idle' && (
               <div className={styles.idleView}>
                 <div className={styles.heroSection}>
-                  <h1 className={styles.heroTitle}>Meet Strangers <span className={styles.textGradient}>Instantly.</span></h1>
+                  <h1 className={styles.heroTitle}>
+                    <span className={styles.gradientText}>Meet Strangers Instantly.</span>
+                  </h1>
                   <p className={styles.heroSubtitle}>Premium, high-speed encrypted video chat with built-in safety and discovery.</p>
                   
                   <div className={styles.featuresGrid}>
@@ -959,7 +1072,11 @@ export default function StrangerLinkApp() {
         </main>
 
         <footer className={styles.footer}>
-          StrangerLink · Be respectful · 18+ only · Do not share personal info
+          <span>StrangerLink · Be respectful · 18+ only</span>
+          <div className={styles.footerLinks}>
+            <a href="/privacy" className={styles.footerLink}>Privacy Policy</a>
+            <a href="/terms" className={styles.footerLink}>Terms of Service</a>
+          </div>
         </footer>
 
         {/* 🆕 SETTINGS MODAL */}
@@ -1001,6 +1118,20 @@ export default function StrangerLinkApp() {
                   ))}
                   {audioDevices.length === 0 && <option disabled>No microphones found</option>}
                 </select>
+              </div>
+
+              <div className={styles.settingsGroup}>
+                <label className={styles.settingsLabel}>Audio Feedback</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={soundEnabled}
+                    onChange={(e) => setSoundEnabled(e.target.checked)}
+                    id="sound-toggle"
+                    style={{ scale: '1.2' }}
+                  />
+                  <label htmlFor="sound-toggle" style={{ fontSize: '13px', cursor: 'pointer' }}>Enable Sound Effects</label>
+                </div>
               </div>
 
               <div className={styles.debugHud} style={{ position: 'static', marginTop: '10px' }}>
