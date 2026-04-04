@@ -206,54 +206,57 @@
   position: relative;
   background: #050508;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;  /* Stack both videos vertically */
 }
 
 :global([data-theme="light"]) .videoArea {
-  background: #e8e8f2;
+  background: #1a1a2e;
 }
 
+/* Both video slots are equal-size halves */
 .videoSlotRemote {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: 1;              /* 50% of videoArea height */
+  overflow: hidden;
+  border-bottom: 2px solid rgba(255,255,255,0.06);
 }
 
 .videoRemote {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;  /* Never zoom/crop — show full frame */
   display: block;
-  transform: scaleX(-1);
+  background: #000;
+  /* No mirror on remote — that would invert their content */
 }
 
-/* PiP local video */
+/* Local video — same half-panel as remote */
 .videoSlotLocal {
-  position: absolute;
-  bottom: 88px;
-  right: 16px;
-  width: 156px;
-  height: 118px;
-  border-radius: var(--radius-sm);
+  position: relative;
+  flex: 1;              /* 50% of videoArea height */
   overflow: hidden;
-  border: 2px solid rgba(255,255,255,0.18);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.05);
-  transition: all 0.28s ease;
-  z-index: 10;
   background: var(--surface);
+  /* Reset the old PiP absolute positioning */
+  bottom: unset;
+  right: unset;
+  width: unset;
+  height: unset;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
 }
 
-.videoSlotLocal:hover {
-  border-color: rgba(124,106,255,0.55);
-  transform: scale(1.04);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,106,255,0.15);
-}
 
 .videoLocal {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;  /* Never zoom/crop on mobile */
   display: block;
-  transform: scaleX(-1);
+  background: #000;
+  transform: scaleX(-1); /* Mirror only YOUR OWN camera — expected by user */
 }
+
 
 .videoLabel {
   position: absolute;
@@ -1412,11 +1415,11 @@
   .rightPanel {
     border-left: none;
     border-top: 1px solid var(--border);
-    max-height: 44vh;
-    min-height: 210px;
+    max-height: 36vh;
+    min-height: 180px;
   }
 
-  .videoSlotLocal { width: 96px; height: 74px; bottom: 78px; right: 10px; }
+  /* videoSlotLocal is now a full panel — no PiP sizing */
 
   .controlsBar { bottom: 10px; padding: 8px 12px; gap: 7px; }
   .btnStart { font-size: 13px; padding: 10px 22px; }
@@ -1428,6 +1431,6 @@
 }
 
 @media (max-width: 400px) {
-  .videoSlotLocal { width: 84px; height: 62px; }
-  .controlsBar { gap: 5px; padding: 7px 10px; }
+  /* No PiP size overrides needed — both videos are full panels */
+  .controlsBar { gap: 5px; }
 }
