@@ -189,7 +189,7 @@
 .main {
   flex: 1;
   display: flex;
-  flex-direction: column; /* Stack video and chat vertically */
+  flex-direction: row; /* Side-by-side video and chat on desktop */
   position: relative;
   z-index: 1;
   overflow: hidden;
@@ -605,7 +605,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 500;
+  z-index: 5000; /* Higher than any overlay */
   backdrop-filter: blur(20px);
   padding: 20px;
   overflow-y: auto;

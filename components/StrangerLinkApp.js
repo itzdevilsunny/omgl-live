@@ -262,7 +262,10 @@ export default function StrangerLinkApp() {
     // Tell encoder this is live motion, not a static screen capture
     stream.getVideoTracks().forEach(t => { try { t.contentHint = 'motion'; } catch {} });
     localStreamRef.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
+      localVideoRef.current.play().catch(() => {});
+    }
     startVisualizer(stream);
     return stream;
   }
@@ -654,16 +657,21 @@ export default function StrangerLinkApp() {
 
   async function startSearching() {
     if (statusRef.current === 'requesting' || statusRef.current === 'waiting') return;
-    updateStatus('requesting');
-    setMessages([]);
     setUnreadCount(0);
-    try { await getLocalStream(); } catch {
-      alert('Camera and microphone access required. Please allow and try again.');
-      updateStatus('idle'); return;
+    
+    // Explicitly hide idleView first
+    updateStatus('requesting');
+
+    try { 
+      await getLocalStream(); 
+    } catch (err) {
+      console.error('[SL] Matchmaking abort: Media Denied', err);
+      updateStatus('idle'); 
+      return;
     }
+    
     if (!pusherRef.current) {
-      console.error('[SL] Cannot search: Signaling client missing. Check your NEXT_PUBLIC_PUSHER_KEY.');
-      alert('Signaling error: Connection could not be established. Please refresh or contact admin.');
+      console.error('[SL] Matchmaking abort: Signaling client missing.');
       updateStatus('idle');
       return;
     }
@@ -781,7 +789,18 @@ export default function StrangerLinkApp() {
     setMounted(true);
     refreshDevices();
     
-    // Listen for device changes (plug/unplug)
+    // Initial camera preview
+    (async () => {
+      try { 
+        const stream = await getLocalStream(); 
+        // Re-assign if ref was null earlier
+        if (localVideoRef.current && !localVideoRef.current.srcObject) {
+          localVideoRef.current.srcObject = stream;
+        }
+      } catch (err) { 
+        console.warn('[SL] Camera preview blocked:', err); 
+      }
+    })();
     navigator.mediaDevices.ondevicechange = refreshDevices;
 
     // Initial stats fetch
