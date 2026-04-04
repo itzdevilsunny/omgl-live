@@ -27,8 +27,22 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>StrangerLink — Meet Someone New</title>
+        <title>StrangerLink — World's Fastest Video Discovery</title>
+        <meta name="description" content="Connect instantly with strangers worldwide. 100% anonymous, ephemeral, and encrypted video chat with premium WebRTC technology." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        
+        {/* Open Graph / Facebook */}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://strangerlink.chat/" />
+        <meta property="og:title" content="StrangerLink — Meet Someone New" />
+        <meta property="og:description" content="Ultra-low latency random video chat. High-fidelity, secure, and instant." />
+        <meta property="og:image" content="https://strangerlink.chat/og-image.png" />
+
+        {/* Twitter */}
+        <meta property="twitter:card" content="summary_large_image" />
+        <meta property="twitter:title" content="StrangerLink — Meet Someone New" />
+        <meta property="twitter:description" content="Ultra-low latency random video chat. High-fidelity, secure, and instant." />
+
         <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>" />
       </Head>
       <StrangerLinkApp />

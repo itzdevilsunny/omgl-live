@@ -551,6 +551,30 @@ export default function StrangerLinkApp() {
     };
   }, [refreshDevices]);
 
+  /* ── ADMIN BROADCASTS ─────────────────────────────────────── */
+  useEffect(() => {
+    if (!mounted) return;
+    const adminChannel = pusherRef.current.subscribe('global-announcements');
+    adminChannel.bind('message', (data) => {
+      const msg = {
+        id: Date.now() + Math.random(),
+        from: 'system',
+        text: `🔔 SYSTEM ALERT: ${data.text}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages(prev => [...prev, msg]);
+      
+      // Auto-open chat if it's closed to show the alert
+      if (statusRef.current === 'active' && !chatOpen) {
+        setChatOpen(true);
+      }
+    });
+
+    return () => {
+      pusherRef.current.unsubscribe('global-announcements');
+    };
+  }, [mounted]);
+
   // Auto-scroll chat to bottom and reset unread
   useEffect(() => {
     if (chatScrollRef.current) {
