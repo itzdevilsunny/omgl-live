@@ -652,12 +652,6 @@
   -webkit-overflow-scrolling: touch;
 }
 
-@media (max-width: 768px) {
-  .idleView {
-    justify-content: flex-start;
-    padding: 60px 20px 100px;
-  }
-}
 
 .interestOverlay {
   position: absolute;
@@ -1449,44 +1443,52 @@
   100% { background-position: 0% 50%; }
 }
 
-/* ── MOBILE PHONE (768px and below) ─────────────────────────── */
-/* Immersive FaceTime-style layout: partner fills screen, self is PIP */
+/* ══════════════════════════════════════════════════════════════════
+   MOBILE PHONE LAYOUT  —  max-width: 768px
+   Design Language: TikTok / FaceTime Immersive
+   ══════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-  .header { 
-    padding: 0 14px; 
-    height: 52px; 
+
+  /* HEADER: Slim frosted bar */
+  .header {
+    padding: 0 12px;
+    height: 48px;
     z-index: 1000;
+    background: rgba(8,8,14,0.88);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
   .tagline { display: none; }
-  .logoText { font-size: 17px; }
+  .logoText { font-size: 16px; letter-spacing: -0.01em; }
 
+  /* MAIN WRAPPER */
   .main {
     flex-direction: column;
-    /* Use svh/dvh for accurate mobile height (excludes browser chrome) */
-    height: calc(100svh - 52px);
-    height: calc(100dvh - 52px);
+    height: calc(100svh - 48px);
+    height: calc(100dvh - 48px);
     position: relative;
     overflow: hidden;
-  }
-
-  /* ════ IMMERSIVE VIDEO LAYOUT ════════════════════════════════ */
-
-  /* Video area covers the entire screen */
-  .videoArea {
-    position: absolute;
-    inset: 0;
-    flex-direction: column;
-    z-index: 0;
     background: #000;
   }
 
-  /* ── Remote video: fills the full screen (FaceTime style) ── */
+  /* VIDEO AREA: Full-screen canvas */
+  .videoArea {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: #000;
+    flex-direction: column;
+  }
+
+  /* REMOTE VIDEO: fills 100% of screen */
   .videoSlotRemote {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     flex: none;
+    z-index: 1;
   }
   .videoRemote {
     width: 100%;
@@ -1494,208 +1496,296 @@
     object-fit: cover;
   }
 
-  /* ── Local video: floating PIP window (bottom-right) ── */
+  /* Deep vignette for control legibility */
+  .videoVignette {
+    background:
+      linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 32%, transparent 58%),
+      linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 22%);
+  }
+
+  /* LOCAL VIDEO: Rounded PIP — top-right corner */
   .videoSlotLocal {
     position: absolute;
-    bottom: 96px; /* Sits above controlsBar */
-    right: 16px;
-    width: 100px;
-    height: 150px;
-    border-radius: 16px;
-    border: 2px solid rgba(255,255,255,0.35);
+    top: 12px;
+    right: 12px;
+    width: 90px;
+    height: 128px;
+    border-radius: 20px;
+    border: 2.5px solid rgba(255,255,255,0.45);
     overflow: hidden;
-    z-index: 400;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+    z-index: 600;
+    box-shadow:
+      0 6px 28px rgba(0,0,0,0.72),
+      0 0 0 1px rgba(255,255,255,0.07),
+      inset 0 0 0 1px rgba(255,255,255,0.05);
     background: #111;
     flex: none;
-    border-left: 2px solid rgba(255,255,255,0.35);
-    transition: all 0.3s ease;
+    transition: transform 0.22s ease, border-color 0.18s;
   }
-  .videoSlotLocal:hover {
-    transform: scale(1.04);
-    border-color: rgba(255,255,255,0.6);
-  }
+  .videoSlotLocal:active { transform: scale(0.94); }
   .videoLocal {
     width: 100%;
     height: 100%;
     object-fit: cover;
     transform: scaleX(-1);
   }
-  
-  /* Hide the "Local" label on PIP, too small for text */
   .videoSlotLocal .videoLabel { display: none; }
+  .videoSlotLocal .videoVignette { display: none; }
+  .videoSlotLocal .glassVisualizer { display: none; }
 
-  /* ════ CONTROLS BAR ══════════════════════════════════════════ */
-  /* Floated at the bottom with larger touch targets */
-  .controlsBar { 
-    bottom: 20px;
-    bottom: calc(20px + env(safe-area-inset-bottom));
-    padding: 10px 18px; 
-    gap: 10px; 
-    z-index: 500;
-    background: rgba(10,10,10,0.7);
-    border: 1px solid rgba(255,255,255,0.15);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+  /* Connection badge: below the PIP, top-left */
+  .connectionStatus {
+    top: 10px;
+    left: 12px;
+    z-index: 700;
+  }
+
+  /* CONTROLS BAR: Floating pill at bottom center */
+  .controlsBar {
+    bottom: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    gap: 8px;
+    z-index: 700;
+    background: rgba(10,10,16,0.78);
+    border: 1px solid rgba(255,255,255,0.11);
+    backdrop-filter: blur(28px) saturate(220%);
+    -webkit-backdrop-filter: blur(28px) saturate(220%);
+    box-shadow:
+      0 8px 36px rgba(0,0,0,0.65),
+      inset 0 1px 0 rgba(255,255,255,0.07);
     border-radius: 100px;
-    /* Make sure the bar wraps if there are too many buttons */
-    flex-wrap: nowrap;
     overflow-x: auto;
+    overflow-y: visible;
     scrollbar-width: none;
-    max-width: calc(100vw - 32px);
+    max-width: calc(100vw - 24px);
+    flex-wrap: nowrap;
   }
   .controlsBar::-webkit-scrollbar { display: none; }
 
-  /* Bigger, thumb-friendly buttons */
+  /* Touch targets — min 44px (Apple HIG guideline) */
   .btnStop {
-    font-size: 13px;
-    padding: 11px 20px;
-    min-height: 46px;
-    min-width: 80px;
+    font-size: 12px;
+    padding: 8px 15px;
+    min-height: 42px;
+    min-width: 68px;
     flex-shrink: 0;
+    border-radius: 100px;
   }
   .btnSkip {
-    font-size: 13px;
-    padding: 11px 18px;
-    min-height: 46px;
+    font-size: 12px;
+    padding: 8px 15px;
+    min-height: 42px;
     flex-shrink: 0;
+    border-radius: 100px;
   }
-  .btnStart { 
-    font-size: 14px; 
-    padding: 13px 28px; 
-    min-height: 50px; 
+  .btnStart {
+    font-size: 15px;
+    padding: 15px 0;
+    min-height: 52px;
+    border-radius: 16px;
+    width: 100%;
+    justify-content: center;
   }
-  /* Larger icon buttons for easy tapping */
-  .btnIcon { 
-    width: 46px; 
-    height: 46px; 
-    font-size: 18px;
+  .btnIcon {
+    width: 42px;
+    height: 42px;
+    font-size: 17px;
     flex-shrink: 0;
+    border-radius: 50%;
   }
-  .divider { height: 26px; }
+  .divider { height: 20px; }
 
-  /* ════ GLASS CHAT OVERLAY ════════════════════════════════════ */
-  /* Chat floats above the controls, semi-transparent */
+  /* CHAT PANEL: Overlay above controls */
   .rightPanel {
     position: absolute;
-    bottom: 84px;
+    bottom: 70px;
+    bottom: calc(70px + env(safe-area-inset-bottom));
     left: 0;
     right: 0;
     width: 100%;
     height: auto;
-    max-height: 40%;
+    max-height: 42%;
     background: transparent;
     border-left: none;
-    z-index: 300;
+    z-index: 500;
     pointer-events: none;
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
   }
 
-  .chatHeader { 
-    display: none; /* Hide chat header to save vertical space */
-  }
+  .chatHeader { display: none; }
 
   .chatArea {
     background: transparent;
     pointer-events: all;
-    border-radius: 0;
     border-top: none;
   }
 
   .chatMessages {
-    padding: 10px 16px;
-    mask-image: linear-gradient(to top, black 80%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to top, black 80%, transparent 100%);
+    padding: 8px 12px;
+    mask-image: linear-gradient(to top, black 72%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to top, black 72%, transparent 100%);
   }
 
-  /* Message bubbles look glassmorphic over the video */
   .message {
-    background: rgba(255,255,255,0.12);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.1);
-    max-width: 80%;
-    margin-bottom: 6px;
-    padding: 8px 13px;
-    line-height: 1.45;
-    font-size: 13px;
-    color: #fff;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
-    border-radius: 16px;
+    background: rgba(14,14,24,0.58);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.09);
+    max-width: 76%;
+    margin-bottom: 5px;
+    padding: 7px 12px;
+    line-height: 1.4;
+    font-size: 12.5px;
+    color: rgba(255,255,255,0.93);
+    border-radius: 14px;
   }
   :global([data-theme="light"]) .message {
-    background: rgba(0,0,0,0.25);
+    background: rgba(0,0,0,0.45);
     color: #fff;
   }
-  .me { background: rgba(124, 106, 255, 0.4) !important; }
+  .me {
+    background: rgba(124,106,255,0.52) !important;
+    border-color: rgba(124,106,255,0.3) !important;
+  }
   .system {
     background: transparent !important;
     border: none !important;
     font-size: 10px;
-    opacity: 0.75;
+    opacity: 0.58;
     text-align: center;
     max-width: 100%;
+    padding: 2px 0;
+    margin-bottom: 2px;
   }
 
-  /* Chat input floats at the bottom of the overlay */
+  /* Chat input */
   .chatInputArea {
     background: transparent;
     border-top: none;
-    padding: 8px 16px;
+    padding: 5px 12px;
     pointer-events: all;
   }
   .msgInput {
-    background: rgba(255,255,255,0.18);
-    border: 1.5px solid rgba(255,255,255,0.28);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    background: rgba(255,255,255,0.14);
+    border: 1.5px solid rgba(255,255,255,0.22);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
     border-radius: 100px;
-    padding: 11px 20px;
+    padding: 10px 18px;
     color: #fff;
-    font-size: 14px;
+    font-size: 13.5px;
   }
-  .msgInput::placeholder { color: rgba(255,255,255,0.55); }
+  .msgInput::placeholder { color: rgba(255,255,255,0.45); }
+  .btnSend { border-radius: 100px; height: 38px; padding: 0 12px; font-size: 11px; }
 
-  /* Misc overrides */
+  /* Misc */
   .footer { display: none; }
-  .reactionBar { bottom: 150px; right: 16px; left: auto; }
+
+  .reactionBar {
+    bottom: 148px;
+    bottom: calc(145px + env(safe-area-inset-bottom));
+    left: 12px;
+    right: auto;
+    gap: 4px;
+  }
+  .reactionBtn { width: 32px; height: 32px; font-size: 15px; }
 
   .chatEmpty {
-    background: rgba(0,0,0,0.3);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 16px;
-    padding: 16px 20px;
-    margin: 16px auto;
+    background: rgba(0,0,0,0.38);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 12px 18px;
+    margin: 12px auto;
     width: fit-content;
     pointer-events: none;
   }
-  .chatEmptyIcon { font-size: 22px; margin-bottom: 4px; }
-  .chatEmptyText { font-size: 10px; color: rgba(255,255,255,0.65); }
+  .chatEmptyIcon { font-size: 20px; margin-bottom: 3px; }
+  .chatEmptyText { font-size: 10px; color: rgba(255,255,255,0.58); }
 
   .emojiBar {
-    bottom: 84px;
-    left: 16px;
-    right: 16px;
+    bottom: 74px;
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    left: 10px;
+    right: 10px;
     width: auto;
-    background: rgba(0,0,0,0.5);
-    border: 1px solid rgba(255,255,255,0.15);
-    backdrop-filter: blur(14px);
-    padding: 8px;
+    background: rgba(10,10,18,0.68);
+    border: 1px solid rgba(255,255,255,0.11);
+    backdrop-filter: blur(18px);
+    padding: 6px 8px;
     justify-content: center;
     border-radius: 100px;
+    z-index: 700;
+  }
+  .emojiBtnChat { font-size: 16px; padding: 3px 4px; }
+
+  .filterCarousel {
+    bottom: 74px;
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    padding: 10px 6px;
+  }
+  .filterPreview { width: 40px; height: 40px; }
+  .filterItem { width: 50px; gap: 5px; }
+  .filterItem span { font-size: 8px; }
+
+  /* IDLE / LANDING SCREEN */
+  .idleView {
+    padding: 28px 18px 36px;
+    justify-content: flex-start;
+    gap: 14px;
+    background:
+      radial-gradient(ellipse at 70% -10%, rgba(124,106,255,0.18) 0%, transparent 55%),
+      radial-gradient(ellipse at 20% 90%, rgba(74,255,212,0.08) 0%, transparent 50%),
+      #07070f;
   }
 
-  /* Filter carousel on mobile */
-  .filterCarousel {
-    bottom: 86px;
-    padding: 12px 8px;
+  .searchCard {
+    width: 100%;
+    padding: 16px 14px;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.09);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: none;
   }
-  .filterPreview { width: 44px; height: 44px; }
-  .filterItem { width: 56px; }
+
+  .heroTitle { font-size: clamp(22px, 6.5vw, 28px) !important; letter-spacing: -0.5px; line-height: 1.15; }
+  .heroSubtitle { font-size: 12px !important; line-height: 1.45; opacity: 0.65; max-width: 100%; }
+  .featuresGrid { display: none; }
+  .interestTitle { font-size: 14px !important; margin-bottom: 2px; }
+  .interestSubtitle { display: none; }
+  .interestTags { gap: 5px; flex-wrap: wrap; }
+  .tagChip { padding: 4px 10px; font-size: 10px; }
+  .interestInput { padding: 8px 10px; font-size: 12px; height: 36px; margin-top: 6px !important; }
+  .sharedInterestBadge {
+    bottom: auto !important;
+    top: 56px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 1000;
+  }
+
+  .settingsCard {
+    padding: 12px;
+    gap: 0;
+  }
+
+  /* Restore the full-width Start button for mobile landing */
+  .btnStart {
+    width: 100%;
+    justify-content: center;
+    padding: 15px;
+    font-size: 15px;
+    font-weight: 700;
+    min-height: 52px;
+    margin-top: 10px;
+  }
 }
 
 /* ── EXTRA SMALL PHONES (400px) ─────────────────────────────── */
@@ -1912,3 +2002,203 @@
   21% { transform: skew(-3deg); filter: hue-rotate(45deg); }
   23% { transform: skew(0deg); filter: none; }
 }
+
+/* ?? AR Loading Overlay */
+.arLoadingOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.68);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 1200;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  gap: 16px;
+  pointer-events: none;
+}
+
+.arLoadingPulse {
+  width: 32px;
+  height: 32px;
+  border: 2px solid rgba(255,255,255,0.06);
+  border-top-color: #00e5ff;
+  border-radius: 50%;
+  animation: arSpin 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes arSpin {
+  to { transform: rotate(360deg); }
+}
+
+
+/* ?? SNAPCHAT UI STYLES */
+.snapHUD {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20px;
+  pointer-events: none;
+  z-index: 100;
+  color: white;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+
+.snapHUD * {
+  pointer-events: auto;
+}
+
+.snapTopBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.snapSideBar {
+  position: absolute;
+  right: 20px;
+  top: 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.snapIconBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.3);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid rgba(255,255,255,0.1);
+  font-size: 20px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.snapIconBtn:hover {
+  background: rgba(255,255,255,0.2);
+  transform: scale(1.05);
+}
+
+.snapIconBtn:active {
+  transform: scale(0.95);
+}
+
+.snapBottomArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding-bottom: 20px;
+}
+
+.snapFilterName {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(0,0,0,0.2);
+  padding: 4px 12px;
+  border-radius: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.snapCarousel {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  overflow-x: auto;
+  padding: 10px 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.snapCarousel::-webkit-scrollbar {
+  display: none;
+}
+
+.snapFilterCircle {
+  flex: 0 0 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(12px);
+  border: 3px solid rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  cursor: pointer;
+}
+
+.snapFilterCircleActive {
+  border-color: #fff;
+  transform: scale(1.15);
+  background: rgba(255,255,255,0.2);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+}
+
+.snapCaptureContainer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.snapCaptureBtn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 6px solid #fff;
+  background: transparent;
+  padding: 4px;
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.snapCaptureBtnInner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #fff;
+  transition: all 0.2s;
+}
+
+.snapCaptureBtnRecording {
+  transform: scale(1.2);
+  border-color: #ff4081;
+}
+
+.snapCaptureBtnRecording .snapCaptureBtnInner {
+  background: #ff4081;
+  border-radius: 4px;
+  transform: scale(0.6);
+}
+
+.snapCaptureProgress {
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 4px solid #ff4081;
+  border-top-color: transparent;
+  animation: snapProgress 10s linear;
+}
+
+@keyframes snapProgress {
+  from { transform: rotate(0deg); opacity: 1; }
+  to { transform: rotate(360deg); opacity: 1; }
+}
+

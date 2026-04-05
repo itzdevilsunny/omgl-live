@@ -118,7 +118,56 @@ export default function StrangerLinkApp() {
 
   /* ── BACKGROUND BLUR & VIDEO FILTERS ─────────────────────── */
   const { startBlur, stopBlur, isBlurActive, isLoading: isBlurLoading, blurStreamRef } = useBackgroundBlur();
-  const { startProcessing, stopProcessing, setFilter, activeFilter, filters } = useVideoFilters();
+  const [isCapturing, setIsCapturing] = useState(false);
+  const captureTimeoutRef = useRef(null);
+  const [facingMode, setFacingMode] = useState('user');
+  const [isFlashActive, setIsFlashActive] = useState(false);
+
+  const { 
+    startProcessing, stopProcessing, setFilter, capturePhoto, 
+    startRecording, stopRecording, activeFilter, isProcessing, 
+    isARLoading, isRecording, filters 
+  } = useVideoFilters();
+
+  const handleCaptureTap = useCallback(() => {
+    const dataUrl = capturePhoto();
+    if (dataUrl) {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `snap_${Date.now()}.png`;
+      a.click();
+    }
+  }, [capturePhoto]);
+
+  const handleCaptureStart = () => {
+    captureTimeoutRef.current = setTimeout(() => {
+      startRecording();
+    }, 500); // 500ms for long press
+  };
+
+  const handleCaptureEnd = () => {
+    if (captureTimeoutRef.current) {
+        clearTimeout(captureTimeoutRef.current);
+        if (!isRecording) {
+            handleCaptureTap();
+        } else {
+            stopRecording();
+        }
+    }
+  };
+
+  const toggleCamera = async () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+    
+    // Simplification: Log switch, normally would re-trigger startStream
+    log(`Switching to ${nextMode} camera`);
+  };
+
+  const toggleFlash = () => {
+    setIsFlashActive(true);
+    setTimeout(() => setIsFlashActive(false), 300);
+  };
 
   /* ── UTILS ─────────────────────────────────────────────────── */
   function updateStatus(s) { statusRef.current = s; setStatus(s); }
@@ -369,6 +418,40 @@ export default function StrangerLinkApp() {
       }
     }
   }
+
+  /* ── SNAPCHAT FILTER ACTIVATION ──────────────────────────── */
+  const handleFilterChange = async (filterId) => {
+    try {
+      setFilter(filterId);
+      
+      let targetStream = localStreamRef.current;
+      if (!targetStream) return;
+
+      // Force AR engine if not active
+      if (!isProcessing) {
+        log('Starting AR Engine...');
+        const processed = await startProcessing(targetStream);
+        if (processed) {
+            targetStream = processed;
+            if (localVideoRef.current) localVideoRef.current.srcObject = processed;
+        }
+      }
+
+      // Sync to WebRTC Partner
+      if (pcRef.current) {
+        const videoTrack = (localVideoRef.current?.srcObject || targetStream).getVideoTracks()[0];
+        if (videoTrack) {
+          const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) {
+            log('Syncing AR track to partner...');
+            await sender.replaceTrack(videoTrack);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[SnapHUD] Filter Switch Error:', err);
+    }
+  };
 
   /* ── QUALITY OPTIMIZATION HELPERS ─────────────────────────── */
 
@@ -1240,7 +1323,7 @@ export default function StrangerLinkApp() {
                 </div>
               )}
               <div className={styles.videoVignette} />
-
+              
               {/* Status indicator */}
               {status !== 'idle' && (
                 <div className={styles.connectionStatus}>
@@ -1289,8 +1372,77 @@ export default function StrangerLinkApp() {
             {/* PiP Local */}
             <div className={styles.videoSlotLocal}>
               <video ref={localVideoRef} autoPlay playsInline muted className={styles.videoLocal} />
+              <div className={styles.videoVignette} />
               <span className={styles.videoLabel}>You</span>
               
+              {/* 📸 SNAPCHAT IMMERSIVE HUD */}
+              <AnimatePresence>
+                {showFilters && (
+                  <motion.div 
+                    className={styles.snapHUD}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                  >
+                    {isFlashActive && <div style={{ position: 'absolute', inset: 0, background: '#fff', zIndex: 9999 }} />}
+                    <div className={styles.snapTopBar}>
+                      <button className={styles.snapIconBtn} onClick={() => setShowSettings(true)}>⚙️</button>
+                      <motion.div 
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        key={activeFilter}
+                        className={styles.snapFilterName}
+                      >
+                        {filters.find(f => f.id === activeFilter)?.name}
+                      </motion.div>
+                      <button className={styles.snapIconBtn} onClick={() => log('More')}>⋯</button>
+                    </div>
+
+                    <div className={styles.snapSideBar}>
+                      <button className={styles.snapIconBtn} title="Switch Camera" onClick={toggleCamera}>🔄</button>
+                      <button className={styles.snapIconBtn} title="Flash" onClick={toggleFlash}>⚡</button>
+                      <button className={styles.snapIconBtn} title="Timer">⏲️</button>
+                    </div>
+
+                    <div className={styles.snapBottomArea}>
+                      <div className={styles.snapCarousel}>
+                        {filters.map(f => (
+                          <motion.div
+                            key={f.id}
+                            className={`${styles.snapFilterCircle} ${activeFilter === f.id ? styles.snapFilterCircleActive : ''}`}
+                            onClick={() => handleFilterChange(f.id)}
+                            whileTap={{ scale: 0.9 }}
+                          >
+                            {f.thumb || '✨'}
+                          </motion.div>
+                        ))}
+                      </div>
+
+                      <div className={styles.snapCaptureContainer}>
+                        {isRecording && <div className={styles.snapCaptureProgress} />}
+                        <button 
+                          className={`${styles.snapCaptureBtn} ${isRecording ? styles.snapCaptureBtnRecording : ''}`}
+                          onMouseDown={handleCaptureStart}
+                          onMouseUp={handleCaptureEnd}
+                          onTouchStart={handleCaptureStart}
+                          onTouchEnd={handleCaptureEnd}
+                        >
+                          <div className={styles.snapCaptureBtnInner} />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* 🆕 AR Model Loading Indicator */}
+              {isARLoading && (
+                <div className={styles.arLoadingOverlay}>
+                  <div className={styles.arLoadingPulse} />
+                  <span>AI LENSES INITIALIZING...</span>
+                </div>
+              )}
+
               {/* 🆕 Glassmorphism Audio Visualizer */}
               {localStreamRef.current && (
                 <AudioVisualizer stream={localStreamRef.current} />
@@ -1490,42 +1642,7 @@ export default function StrangerLinkApp() {
               </div>
             )}
 
-            {/* 🆕 Instagram-style Filter Carousel */}
-            <AnimatePresence>
-              {showFilters && isActive && (
-                <motion.div 
-                  className={styles.filterCarousel}
-                  initial={{ y: 50, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 50, opacity: 0 }}
-                >
-                  <div className={styles.filterList}>
-                    {filters.map(f => (
-                      <button 
-                        key={f.id} 
-                        className={`${styles.filterItem} ${activeFilter === f.id ? styles.filterItemActive : ''}`}
-                        onClick={async () => {
-                          setFilter(f.id);
-                          // If already in a call, we need to swap the tracks
-                          if (localStreamRef.current && pcRef.current) {
-                            const newStream = await startProcessing(localStreamRef.current);
-                            if (newStream) {
-                              const newVideoTrack = newStream.getVideoTracks()[0];
-                              const sender = pcRef.current.getSenders().find(s => s.track.kind === 'video');
-                              if (sender) sender.replaceTrack(newVideoTrack);
-                              localVideoRef.current.srcObject = newStream;
-                            }
-                          }
-                        }}
-                      >
-                        <div className={styles.filterPreview} style={{ filter: f.filter }} />
-                        <span>{f.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* LEGACY Filter Carousel (REMOVED - Replaced by SnapHUD) */}
           </div>
 
           {/* 📸 Shutter Flash Overlay */}
@@ -1670,16 +1787,15 @@ export default function StrangerLinkApp() {
         {/* 🆕 SETTINGS MODAL */}
         {showSettings && (
           <div className={styles.interestOverlay} style={{ zIndex: 1000 }}>
-            <div className={styles.interestCard} style={{ maxWidth: '360px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2 className={styles.interestTitle}>Media Settings</h2>
+            <div className={styles.settingsCard}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h2 className={styles.interestTitle} style={{ margin: 0, fontSize: '15px' }}>⚙️ Settings</h2>
                 <button 
                   className={styles.btnIcon} 
                   onClick={() => setShowSettings(false)}
-                  style={{ width: '32px', height: '32px' }}
+                  style={{ width: '28px', height: '28px', fontSize: '14px' }}
                 >✕</button>
               </div>
-              
               <div className={styles.settingsGroup}>
                 <label className={styles.settingsLabel}>Camera</label>
                 <select 
@@ -1696,7 +1812,7 @@ export default function StrangerLinkApp() {
 
               <div className={styles.settingsGroup}>
                 <label className={styles.settingsLabel}>🎨 Chat Theme</label>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
                   {[
                     { id: 'standard', color: '#7c6aff', name: 'Original' },
                     { id: 'neon',     color: '#bc13fe', name: 'Neon' },
@@ -1711,12 +1827,12 @@ export default function StrangerLinkApp() {
                       }}
                       style={{
                         flex: 1,
-                        height: '38px',
-                        borderRadius: '8px',
+                        height: '30px',
+                        borderRadius: '6px',
                         background: t.color,
                         border: chatTheme === t.id ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.1)',
                         cursor: 'pointer',
-                        fontSize: '10px',
+                        fontSize: '9px',
                         fontWeight: 'bold',
                         color: t.id === 'luxury' ? '#000' : '#fff',
                         display: 'flex',
@@ -1746,60 +1862,56 @@ export default function StrangerLinkApp() {
                 </select>
               </div>
 
-              <div className={styles.settingsGroup}>
-                <label className={styles.settingsLabel}>Audio Feedback</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className={styles.settingsGroup} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label className={styles.settingsLabel} style={{ marginBottom: 0 }}>Audio Feedback</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input 
                     type="checkbox" 
                     checked={soundEnabled}
                     onChange={(e) => setSoundEnabled(e.target.checked)}
                     id="sound-toggle"
-                    style={{ scale: '1.2' }}
+                    style={{ scale: '1.1' }}
                   />
-                  <label htmlFor="sound-toggle" style={{ fontSize: '13px', cursor: 'pointer' }}>Enable Sound Effects</label>
+                  <label htmlFor="sound-toggle" style={{ fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Sound Effects</label>
                 </div>
               </div>
 
               <div className={styles.settingsGroup}>
-                <label className={styles.settingsLabel}>🔔 background Alerts</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' }}>
-                  <button
-                    onClick={async () => {
-                      if (!notificationsEnabled) {
-                        const res = await Notification.requestPermission();
-                        if (res === 'granted') {
-                          setNotificationsEnabled(true);
-                          localStorage.setItem('sl-notifications', 'true');
-                        } else {
-                          alert('Please enable notifications in your browser settings to use this feature.');
-                        }
+                <label className={styles.settingsLabel}>🔔 Background Alerts</label>
+                <button
+                  onClick={async () => {
+                    if (!notificationsEnabled) {
+                      const res = await Notification.requestPermission();
+                      if (res === 'granted') {
+                        setNotificationsEnabled(true);
+                        localStorage.setItem('sl-notifications', 'true');
                       } else {
-                        setNotificationsEnabled(false);
-                        localStorage.setItem('sl-notifications', 'false');
+                        alert('Please enable notifications in your browser settings to use this feature.');
                       }
-                    }}
-                    className={`${styles.blurToggleBtn} ${notificationsEnabled ? styles.blurToggleBtnActive : ''}`}
-                    style={{ flex: 1, padding: '10px', fontSize: '12px' }}
-                  >
-                    {notificationsEnabled ? '✅ Notifications: ON' : '🔔 Enable Push Notifications'}
-                  </button>
-                </div>
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                  Get alerted when a match is found, even if this tab is in the background.
-                </p>
+                    } else {
+                      setNotificationsEnabled(false);
+                      localStorage.setItem('sl-notifications', 'false');
+                    }
+                  }}
+                  className={`${styles.blurToggleBtn} ${notificationsEnabled ? styles.blurToggleBtnActive : ''}`}
+                  style={{ padding: '7px 10px', fontSize: '11px', width: '100%' }}
+                >
+                  {notificationsEnabled ? '✅ Notifications: ON' : '🔔 Enable Push Notifications'}
+                </button>
               </div>
 
-              <div className={styles.debugHud} style={{ position: 'static', marginTop: '10px' }}>
-                Peer ID: {userId.slice(0,8)}...
+              {/* Peer ID — compact single line */}
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', padding: '4px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', marginBottom: '10px' }}>
+                Peer: {userId.slice(0,8)}...
               </div>
 
-              {/* 🆕 Virtual Background Blur Toggle */}
-              <div className={styles.settingsGroup} style={{ marginTop: '14px' }}>
+              <div className={styles.settingsGroup}>
                 <label className={styles.settingsLabel}>🎭 Privacy</label>
                 <button
                   className={`${styles.blurToggleBtn} ${isBlurActive ? styles.blurToggleBtnActive : ''}`}
                   onClick={handleBlurToggle}
                   disabled={isBlurLoading || !localStreamRef.current}
+                  style={{ padding: '7px 10px', fontSize: '11px', width: '100%' }}
                 >
                   {isBlurLoading
                     ? '⏳ Loading AI Model...'
@@ -1807,12 +1919,9 @@ export default function StrangerLinkApp() {
                     ? '✅ Background Blur: ON'
                     : '🌫️ Background Blur: OFF'}
                 </button>
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.4 }}>
-                  Uses TensorFlow to blur your background in real-time. May use extra GPU power.
-                </p>
               </div>
 
-              <button className={styles.btnStart} onClick={() => setShowSettings(false)} style={{ width: '100%', justifyContent: 'center' }}>
+              <button className={styles.btnStart} onClick={() => setShowSettings(false)} style={{ width: '100%', justifyContent: 'center', padding: '10px', fontSize: '13px', marginTop: '4px' }}>
                 Done
               </button>
             </div>
