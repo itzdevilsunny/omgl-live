@@ -5,6 +5,7 @@ import Pusher from 'pusher-js';
 import styles from '../styles/Home.module.css';
 import AudioVisualizer from './AudioVisualizer';
 import { useBackgroundBlur } from './BackgroundBlur';
+import { useVideoFilters } from '../lib/useVideoFilters';
 
 /* ── Constants ─────────────────────────────────────────────── */
 const ICE_SERVERS = {
@@ -85,6 +86,7 @@ export default function StrangerLinkApp() {
   const [chatMode,      setChatMode]      = useState('video');
   const [ageGroup,      setAgeGroup]      = useState('any');
   const [qualification, setQualification] = useState('any');
+  const [showFilters,   setShowFilters]   = useState(false); // 🆕 filter carousel toggle
 
   const [userId] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -114,12 +116,18 @@ export default function StrangerLinkApp() {
   const chatScrollRef   = useRef(null);   // 🆕 for unread badge logic
   const reactionIdRef   = useRef(0);      // 🆕 unique ID for floating reactions
 
-  /* ── BACKGROUND BLUR HOOK ─────────────────────────────────── */
+  /* ── BACKGROUND BLUR & VIDEO FILTERS ─────────────────────── */
   const { startBlur, stopBlur, isBlurActive, isLoading: isBlurLoading, blurStreamRef } = useBackgroundBlur();
+  const { startProcessing, stopProcessing, setFilter, activeFilter, filters } = useVideoFilters();
 
   /* ── UTILS ─────────────────────────────────────────────────── */
   function updateStatus(s) { statusRef.current = s; setStatus(s); }
-  function log(msg) { console.log('[SL]', msg); setDebugMsg(msg); }
+  function log(msg) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[SL]', msg);
+    }
+    setDebugMsg(msg);
+  }
   function getInterestsArray() {
     return activeTags;
   }
@@ -148,7 +156,7 @@ export default function StrangerLinkApp() {
   }
 
   /* ── TIMER ─────────────────────────────────────────────────── */
-  const MAX_CALL_DURATION = 600; // 10 minutes in seconds
+  const MAX_CALL_DURATION = 1200; // 20 minutes in seconds
   const timerStartRef = useRef(null); // performance.now() timestamp at call start
 
   function startTimer() {
@@ -167,7 +175,7 @@ export default function StrangerLinkApp() {
       if (elapsed >= MAX_CALL_DURATION) {
         clearInterval(timerRef.current);
         timerRef.current = null;
-        setMessages(prev => [...prev, { from: 'system', text: '⏰ 10-minute session limit reached. Connect again to keep chatting!' }]);
+        setMessages(prev => [...prev, { from: 'system', text: '⏰ 20-minute session limit reached. Connect again to keep chatting!' }]);
         setTimeout(() => stopChat(), 3000);
       } else if (elapsed === MAX_CALL_DURATION - 60) {
         setMessages(prev => [...prev, { from: 'system', text: '⚠️ 1 minute remaining in this session.' }]);
@@ -276,6 +284,17 @@ export default function StrangerLinkApp() {
       localVideoRef.current.srcObject = stream;
       localVideoRef.current.play().catch(() => {});
     }
+
+    // 🆕 Apply Video Filters if active
+    if (activeFilter !== 'none') {
+      const filteredStream = await startProcessing(stream);
+      if (filteredStream) {
+        localStreamRef.current = filteredStream;
+        if (localVideoRef.current) localVideoRef.current.srcObject = filteredStream;
+        return filteredStream;
+      }
+    }
+
     return stream;
   }
 
@@ -500,24 +519,39 @@ export default function StrangerLinkApp() {
 
     pc.onconnectionstatechange = () => {
       log(`PC: ${pc.connectionState}`);
+      
       if (pc.connectionState === 'connected') {
-        // Connection fully established — clear disconnect timer, play video, boost quality
         clearTimeout(disconnectTimerRef.current);
         setTimeout(playRemoteVideo, 300);
         setTimeout(() => applyQualitySettings(pc), 600);
       }
-      if (pc.connectionState === 'disconnected') {
-        // 'disconnected' is transient during ICE restarts — give 60s grace period before giving up
+      
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        // 🔄 Attempt an ICE restart if supported
+        try {
+          if (pc.restartIce) {
+            pc.restartIce();
+            log('ICE Restarting — attempting to recover connection...');
+          }
+        } catch (e) {
+          log('ICE Restart failed: ' + e.message);
+        }
+
+        // Show a temporary system message to indicate instability
+        setMessages(m => [
+          ...m, 
+          { from: 'system', text: '📶 Connection unstable. Attempting to reconnect automatically...' }
+        ]);
+
+        // ⏱ Grace Period: 60s for both disconnected AND failed states
+        // This prevents the call from dropping instantly on network blips.
+        clearTimeout(disconnectTimerRef.current);
         disconnectTimerRef.current = setTimeout(() => {
-          if (pcRef.current && pcRef.current.connectionState === 'disconnected') {
-            log('PC disconnected for 60s — treating as partner left');
+          if (pcRef.current && (pcRef.current.connectionState === 'disconnected' || pcRef.current.connectionState === 'failed')) {
+            log(`Call dropped — connection remained ${pcRef.current.connectionState} for 60s`);
             handlePartnerLeft();
           }
         }, 60000);
-      }
-      if (pc.connectionState === 'failed') {
-        clearTimeout(disconnectTimerRef.current);
-        handlePartnerLeft();
       }
     };
 
@@ -644,13 +678,30 @@ export default function StrangerLinkApp() {
     }
     const pusher = pusherRef.current;
     
+    // 📶 Signaling State Persistence
+    pusher.connection.bind('state_change', (states) => {
+      // states = { previous, current }
+      log(`Pusher: ${states.current}`);
+      setPusherStatus(states.current);
+      
+      if (states.current === 'unavailable' || states.current === 'failed') {
+        setMessages(m => [
+          ...m, 
+          { from: 'system', text: '📶 Signaling unstable. Attempting to reconnect to matchmaker...' }
+        ]);
+      }
+    });
+
     // Unsubscribe from old channel if exists
     pusher.unsubscribe(`user-${userId}`);
     const ch = pusher.subscribe(`user-${userId}`);
 
-
     ch.bind('pusher:subscription_succeeded', () => setPusherStatus('connected'));
-    ch.bind('pusher:subscription_error', () => setPusherStatus('error'));
+    ch.bind('pusher:subscription_error', () => {
+      setPusherStatus('error');
+      // Retry subscription after 3s if failed
+      setTimeout(() => ch.subscribe(`user-${userId}`), 3000);
+    });
 
     ch.bind('matched', async ({ roomId, isInitiator, partnerId, matchedTag, partnerCountry: pCountry }) => {
       log(`Matched! room=${roomId} init=${isInitiator} tag=${matchedTag} country=${pCountry}`);
@@ -806,6 +857,7 @@ export default function StrangerLinkApp() {
     partnerIdRef.current = null; pendingIceRef.current = [];
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
+    stopProcessing(); // 🆕 cleanup canvas pipeline
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     remoteStreamRef.current = null;
@@ -1055,6 +1107,32 @@ export default function StrangerLinkApp() {
       setUnreadCount(0);
     }
   }, [messages]);
+
+  // 🆕 Tab Visibility Listener: Optimization & Privacy
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // If hidden and NOT in a call, stop AI to save CPU/Battery
+        if (statusRef.current !== 'connected' && isBlurActive) {
+          stopBlur();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isBlurActive, stopBlur]);
+
+  // Comprehensive Cleanup on Unmount
+  useEffect(() => {
+    return () => {
+      if (pcRef.current) pcRef.current.close();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (pusherRef.current) pusherRef.current.disconnect();
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   if (!mounted) return <div style={{ background: '#121212', height: '100vh' }} />;
 
@@ -1392,6 +1470,9 @@ export default function StrangerLinkApp() {
                     <button className={styles.btnIcon} onClick={reportUser} title="Report User">
                       🚩
                     </button>
+                    <button className={styles.btnIcon} onClick={() => setShowFilters(!showFilters)} title="Filters ✨">
+                      ✨
+                    </button>
                     <button className={styles.btnIcon} onClick={captureSnapshot} title="Take Selfie 📸">
                       📸
                     </button>
@@ -1408,6 +1489,43 @@ export default function StrangerLinkApp() {
                 </button>
               </div>
             )}
+
+            {/* 🆕 Instagram-style Filter Carousel */}
+            <AnimatePresence>
+              {showFilters && isActive && (
+                <motion.div 
+                  className={styles.filterCarousel}
+                  initial={{ y: 50, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 50, opacity: 0 }}
+                >
+                  <div className={styles.filterList}>
+                    {filters.map(f => (
+                      <button 
+                        key={f.id} 
+                        className={`${styles.filterItem} ${activeFilter === f.id ? styles.filterItemActive : ''}`}
+                        onClick={async () => {
+                          setFilter(f.id);
+                          // If already in a call, we need to swap the tracks
+                          if (localStreamRef.current && pcRef.current) {
+                            const newStream = await startProcessing(localStreamRef.current);
+                            if (newStream) {
+                              const newVideoTrack = newStream.getVideoTracks()[0];
+                              const sender = pcRef.current.getSenders().find(s => s.track.kind === 'video');
+                              if (sender) sender.replaceTrack(newVideoTrack);
+                              localVideoRef.current.srcObject = newStream;
+                            }
+                          }
+                        }}
+                      >
+                        <div className={styles.filterPreview} style={{ filter: f.filter }} />
+                        <span>{f.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* 📸 Shutter Flash Overlay */}

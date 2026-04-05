@@ -38,6 +38,15 @@ export default async function handler(req, res) {
     // 🌐 Detect Country (Vercel header or fallback)
     const country = req.headers['x-vercel-ip-country'] || 'US'; 
 
+    // --- ANTI-SPAM GUARD ---
+    const lastSeen = await redis.zscore('active_queue', userId);
+    if (lastSeen && (now - lastSeen < 1000)) {
+      // User is already active/waiting and sent a request too soon. 
+      // Return existing stats but don't re-process the match logic to save Redis OPS.
+      const onlineCount = await redis.zcount('active_queue', minTime, '+inf');
+      return res.status(200).json({ waiting: true, onlineCount, spamShield: true });
+    }
+
     // 1. Update Global Heartbeat, Language & Country Config
     await redis.zadd('active_queue', { score: now, member: userId });
     if (language) {

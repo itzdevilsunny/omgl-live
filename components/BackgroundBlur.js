@@ -152,11 +152,15 @@ export function useBackgroundBlur() {
   const stopBlur = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (hiddenVideoRef.current) {
+      hiddenVideoRef.current.pause();
       hiddenVideoRef.current.srcObject = null;
       hiddenVideoRef.current = null;
     }
+    if (blurStreamRef.current) {
+      blurStreamRef.current.getTracks().forEach(t => t.stop());
+      blurStreamRef.current = null;
+    }
     outputCanvasRef.current = null;
-    blurStreamRef.current = null;
     setIsBlurActive(false);
     console.log('[BackgroundBlur] Segmentation pipeline stopped');
   }, []);

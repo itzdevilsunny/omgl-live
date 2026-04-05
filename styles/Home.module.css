@@ -229,59 +229,63 @@
 .main {
   flex: 1;
   display: flex;
-  flex-direction: row; /* Side-by-side video and chat on desktop */
+  flex-direction: row;
   position: relative;
   z-index: 1;
   overflow: hidden;
-  height: calc(100vh - 58px);
+  /* Use dynamic viewport height to account for mobile browser chrome */
+  height: calc(100svh - 58px);
 }
 
 /* ── VIDEO AREA ─────────────────────────────────────────────── */
 .videoArea {
   position: relative;
-  background: var(--bg);
+  background: #000;
   overflow: hidden;
   display: flex;
-  flex-direction: row;  /* Side-by-side videos on desktop */
-  flex: 1;              /* Takes all remaining space */
+  flex-direction: row;
+  flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 
 :global([data-theme="light"]) .videoArea {
   background: #1a1a2e;
 }
 
-/* Both video slots are equal-size halves */
+/* Both video slots are equal-size halves on desktop */
 .videoSlotRemote {
   position: relative;
-  flex: 1;              /* 50% of videoArea width */
+  flex: 1;
   overflow: hidden;
+  min-width: 0;
+  background: #000;
 }
 
 .videoRemote {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover; /* Fill the slot without letterboxing */
   display: block;
-  background: var(--bg);
+  background: #000;
 }
 
 .videoSlotLocal {
   position: relative;
-  flex: 1;              /* 50% of videoArea width */
+  flex: 1;
   overflow: hidden;
-  background: var(--bg);
+  background: #000;
   border-left: 1px solid var(--border);
+  min-width: 0;
 }
-
 
 .videoLocal {
   width: 100%;
   height: 100%;
-  object-fit: contain;  /* Never zoom/crop on mobile */
+  object-fit: cover;
   display: block;
   background: #000;
-  transform: scaleX(-1); /* Mirror only YOUR OWN camera — expected by user */
+  transform: scaleX(-1);
 }
 
 
@@ -740,9 +744,10 @@
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--surface);
-  width: 320px;            /* Fixed narrower chat sidebar */
-  flex-shrink: 0;          /* Prevent shrinking on desktop */
-  min-height: 200px;
+  /* Fluid chat width: min 280px, preferred 25vw, max 360px */
+  width: clamp(280px, 25vw, 360px);
+  flex-shrink: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1350,6 +1355,7 @@
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+/* ── TABLET (1024px) ─────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .idleView { 
     flex-direction: column; 
@@ -1362,7 +1368,7 @@
   .heroSection { margin-top: 5px; padding: 0; text-align: center; }
   .heroTitle { font-size: 22px !important; letter-spacing: -0.5px; margin-bottom: 4px; }
   .heroSubtitle { font-size: 12px !important; line-height: 1.3; opacity: 0.7; margin-bottom: 8px; max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .featuresGrid { display: none; } /* Hide features on mobile to save space */
+  .featuresGrid { display: none; }
   .searchCard { 
     width: 100%; 
     padding: 16px 12px; 
@@ -1373,11 +1379,14 @@
     backdrop-filter: blur(20px);
   }
   .interestTitle { font-size: 15px !important; margin-bottom: 2px; }
-  .interestSubtitle { display: none; } /* Hide subtitle on mobile to save space */
+  .interestSubtitle { display: none; }
   .interestTags { gap: 4px; justify-content: center; }
   .tagChip { padding: 3px 8px; font-size: 9px; }
   .interestInput { padding: 8px; font-size: 11px; height: 34px; margin-top: 8px !important; }
   .btnStart { width: 100%; justify-content: center; padding: 14px; font-size: 14px; margin-top: 10px; font-weight: 700; height: 48px; }
+
+  /* Narrow the chat sidebar on tablets */
+  .rightPanel { width: 260px; }
 }
 
 /* ── PREMIUM FINISHING ─────────────────────────────────────── */
@@ -1440,20 +1449,29 @@
   100% { background-position: 0% 50%; }
 }
 
+/* ── MOBILE PHONE (768px and below) ─────────────────────────── */
+/* Immersive FaceTime-style layout: partner fills screen, self is PIP */
 @media (max-width: 768px) {
-  .header { padding: 0 14px; height: 52px; z-index: 1000; }
+  .header { 
+    padding: 0 14px; 
+    height: 52px; 
+    z-index: 1000;
+  }
   .tagline { display: none; }
   .logoText { font-size: 17px; }
 
   .main {
     flex-direction: column;
+    /* Use svh/dvh for accurate mobile height (excludes browser chrome) */
     height: calc(100svh - 52px);
     height: calc(100dvh - 52px);
     position: relative;
     overflow: hidden;
   }
 
-  /* ── IMMERSIVE VIDEO OVERLAY ────────────────────────────── */
+  /* ════ IMMERSIVE VIDEO LAYOUT ════════════════════════════════ */
+
+  /* Video area covers the entire screen */
   .videoArea {
     position: absolute;
     inset: 0;
@@ -1462,7 +1480,7 @@
     background: #000;
   }
 
-  /* Remote video: FULL SCREEN background */
+  /* ── Remote video: fills the full screen (FaceTime style) ── */
   .videoSlotRemote {
     position: absolute;
     inset: 0;
@@ -1473,152 +1491,226 @@
   .videoRemote {
     width: 100%;
     height: 100%;
-    object-fit: cover; /* Fill the screen */
+    object-fit: cover;
   }
 
-  /* Local video: PIP (Picture-in-Picture) floating window */
+  /* ── Local video: floating PIP window (bottom-right) ── */
   .videoSlotLocal {
     position: absolute;
-    top: 20px;
-    right: 20px;
-    width: 90px;
-    height: 135px;
-    border-radius: 12px;
-    border: 2px solid rgba(255,255,255,0.3);
+    bottom: 96px; /* Sits above controlsBar */
+    right: 16px;
+    width: 100px;
+    height: 150px;
+    border-radius: 16px;
+    border: 2px solid rgba(255,255,255,0.35);
     overflow: hidden;
-    z-index: 200;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    background: #000;
+    z-index: 400;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+    background: #111;
     flex: none;
-    border-left: none;
+    border-left: 2px solid rgba(255,255,255,0.35);
+    transition: all 0.3s ease;
+  }
+  .videoSlotLocal:hover {
+    transform: scale(1.04);
+    border-color: rgba(255,255,255,0.6);
   }
   .videoLocal {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transform: scaleX(-1);
   }
+  
+  /* Hide the "Local" label on PIP, too small for text */
+  .videoSlotLocal .videoLabel { display: none; }
 
-  /* Controls: Float them a bit higher for thumbs */
+  /* ════ CONTROLS BAR ══════════════════════════════════════════ */
+  /* Floated at the bottom with larger touch targets */
   .controlsBar { 
-    bottom: 24px; 
-    padding: 10px 16px; 
-    gap: 8px; 
+    bottom: 20px;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    padding: 10px 18px; 
+    gap: 10px; 
     z-index: 500;
-    background: rgba(0,0,0,0.65);
+    background: rgba(10,10,10,0.7);
     border: 1px solid rgba(255,255,255,0.15);
-    backdrop-filter: blur(16px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    margin-bottom: env(safe-area-inset-bottom);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+    border-radius: 100px;
+    /* Make sure the bar wraps if there are too many buttons */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: calc(100vw - 32px);
   }
+  .controlsBar::-webkit-scrollbar { display: none; }
 
-  .btnStart { font-size: 13px; padding: 12px 24px; min-height: 48px; }
-  .btnStop, .btnSkip { font-size: 12px; padding: 10px 18px; min-height: 44px; }
-  .btnIcon { width: 44px; height: 44px; font-size: 16px; }
+  /* Bigger, thumb-friendly buttons */
+  .btnStop {
+    font-size: 13px;
+    padding: 11px 20px;
+    min-height: 46px;
+    min-width: 80px;
+    flex-shrink: 0;
+  }
+  .btnSkip {
+    font-size: 13px;
+    padding: 11px 18px;
+    min-height: 46px;
+    flex-shrink: 0;
+  }
+  .btnStart { 
+    font-size: 14px; 
+    padding: 13px 28px; 
+    min-height: 50px; 
+  }
+  /* Larger icon buttons for easy tapping */
+  .btnIcon { 
+    width: 46px; 
+    height: 46px; 
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .divider { height: 26px; }
 
-  /* ── GLASS CHAT OVERLAY ───────────────────────────────── */
+  /* ════ GLASS CHAT OVERLAY ════════════════════════════════════ */
+  /* Chat floats above the controls, semi-transparent */
   .rightPanel {
     position: absolute;
-    bottom: 84px; /* Above controls */
+    bottom: 84px;
     left: 0;
+    right: 0;
     width: 100%;
     height: auto;
-    max-height: 38%;
+    max-height: 40%;
     background: transparent;
     border-left: none;
     z-index: 300;
-    pointer-events: none; /* Allow interaction with video in empty areas */
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
   }
 
   .chatHeader { 
-    background: transparent; 
-    border-bottom: none;
-    padding: 0 16px;
-    height: 32px;
+    display: none; /* Hide chat header to save vertical space */
   }
-  .chatHeaderTitle { font-size: 12px; opacity: 0.7; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
 
   .chatArea {
     background: transparent;
-    pointer-events: all; /* Users can still scroll chat */
+    pointer-events: all;
+    border-radius: 0;
+    border-top: none;
   }
 
   .chatMessages {
-    padding: 12px 16px;
-    /* Create a fade-out effect at the top */
-    mask-image: linear-gradient(to top, black 85%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to top, black 85%, transparent 100%);
+    padding: 10px 16px;
+    mask-image: linear-gradient(to top, black 80%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to top, black 80%, transparent 100%);
   }
 
+  /* Message bubbles look glassmorphic over the video */
   .message {
     background: rgba(255,255,255,0.12);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.08);
-    max-width: 85%;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+    max-width: 80%;
     margin-bottom: 6px;
-    padding: 8px 12px;
-    line-height: 1.4;
+    padding: 8px 13px;
+    line-height: 1.45;
     font-size: 13px;
     color: #fff;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    border-radius: 16px;
   }
-
   :global([data-theme="light"]) .message {
-    background: rgba(0,0,0,0.12);
-    color: #fff; /* Still keep readable text on video */
+    background: rgba(0,0,0,0.25);
+    color: #fff;
+  }
+  .me { background: rgba(124, 106, 255, 0.4) !important; }
+  .system {
+    background: transparent !important;
+    border: none !important;
+    font-size: 10px;
+    opacity: 0.75;
+    text-align: center;
+    max-width: 100%;
   }
 
-  .me { background: color-mix(in srgb, var(--brand) 35%, transparent); }
-  .system { background: transparent; border: none; font-size: 11px; opacity: 0.8; }
-
+  /* Chat input floats at the bottom of the overlay */
   .chatInputArea {
     background: transparent;
     border-top: none;
-    padding: 10px 16px;
-    margin-bottom: 8px;
+    padding: 8px 16px;
+    pointer-events: all;
   }
   .msgInput {
-    background: rgba(255,255,255,0.15);
-    border: 1.5px solid rgba(255,255,258,0.25);
-    backdrop-filter: blur(12px);
+    background: rgba(255,255,255,0.18);
+    border: 1.5px solid rgba(255,255,255,0.28);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border-radius: 100px;
-    padding: 10px 18px;
+    padding: 11px 20px;
     color: #fff;
-    font-size: 13px;
+    font-size: 14px;
   }
-  .msgInput::placeholder { color: rgba(255,255,255,0.6); }
+  .msgInput::placeholder { color: rgba(255,255,255,0.55); }
 
+  /* Misc overrides */
   .footer { display: none; }
-  .reactionBar { bottom: 140px; right: 12px; }
+  .reactionBar { bottom: 150px; right: 16px; left: auto; }
 
   .chatEmpty {
-    background: rgba(0,0,0,0.25);
-    backdrop-filter: blur(8px);
+    background: rgba(0,0,0,0.3);
+    backdrop-filter: blur(10px);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 16px;
-    padding: 20px;
-    margin: 20px auto;
+    padding: 16px 20px;
+    margin: 16px auto;
     width: fit-content;
+    pointer-events: none;
   }
-  .chatEmptyIcon { font-size: 24px; margin-bottom: 4px; }
-  .chatEmptyText { font-size: 11px; color: rgba(255,255,255,0.7); }
+  .chatEmptyIcon { font-size: 22px; margin-bottom: 4px; }
+  .chatEmptyText { font-size: 10px; color: rgba(255,255,255,0.65); }
 
   .emojiBar {
-    bottom: 70px;
+    bottom: 84px;
     left: 16px;
     right: 16px;
     width: auto;
-    background: rgba(0,0,0,0.45);
+    background: rgba(0,0,0,0.5);
     border: 1px solid rgba(255,255,255,0.15);
-    backdrop-filter: blur(12px);
+    backdrop-filter: blur(14px);
     padding: 8px;
     justify-content: center;
     border-radius: 100px;
   }
+
+  /* Filter carousel on mobile */
+  .filterCarousel {
+    bottom: 86px;
+    padding: 12px 8px;
+  }
+  .filterPreview { width: 44px; height: 44px; }
+  .filterItem { width: 56px; }
 }
 
+/* ── EXTRA SMALL PHONES (400px) ─────────────────────────────── */
 @media (max-width: 400px) {
-  /* No PiP size overrides needed — both videos are full panels */
-  .controlsBar { gap: 5px; }
+  .controlsBar { gap: 6px; padding: 10px 14px; }
+  .btnIcon { width: 42px; height: 42px; font-size: 16px; }
+  .btnStop, .btnSkip { padding: 10px 14px; font-size: 12px; }
+  /* Shrink PIP on very small screens */
+  .videoSlotLocal {
+    width: 80px;
+    height: 120px;
+    right: 12px;
+    bottom: 90px;
+    border-radius: 12px;
+  }
 }
 
 .pulseAnim {
