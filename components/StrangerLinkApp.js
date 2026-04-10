@@ -1370,7 +1370,7 @@ export default function StrangerLinkApp() {
             </div>
 
             {/* PiP Local */}
-            <div className={`${styles.videoSlotLocal} ${isBlurred ? styles.blurFilterContainer : ''} ${showFilters ? styles.videoSlotLocalFullscreen : ''}`}>
+            <div className={`${styles.videoSlotLocal} ${isBlurActive ? styles.blurFilterContainer : ''} ${showFilters ? styles.videoSlotLocalFullscreen : ''}`}>
               <video ref={localVideoRef} autoPlay playsInline muted className={styles.videoLocal} />
               <div className={styles.videoVignette} />
               <span className={styles.videoLabel}>You</span>
