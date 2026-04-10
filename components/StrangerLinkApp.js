@@ -1370,7 +1370,7 @@ export default function StrangerLinkApp() {
             </div>
 
             {/* PiP Local */}
-            <div className={styles.videoSlotLocal}>
+            <div className={`${styles.videoSlotLocal} ${isBlurred ? styles.blurFilterContainer : ''} ${showFilters ? styles.videoSlotLocalFullscreen : ''}`}>
               <video ref={localVideoRef} autoPlay playsInline muted className={styles.videoLocal} />
               <div className={styles.videoVignette} />
               <span className={styles.videoLabel}>You</span>
@@ -1393,9 +1393,9 @@ export default function StrangerLinkApp() {
                         key={activeFilter}
                         className={styles.snapFilterName}
                       >
-                        {filters.find(f => f.id === activeFilter)?.name}
+                        {filters.find(f => f.id === activeFilter)?.name || 'Original'}
                       </motion.div>
-                      <button className={styles.snapIconBtn} onClick={() => log('More')}>⋯</button>
+                      <button className={styles.snapIconBtn} onClick={() => setShowFilters(false)}>✖</button>
                     </div>
 
                     <div className={styles.snapSideBar}>
@@ -1413,7 +1413,8 @@ export default function StrangerLinkApp() {
                             onClick={() => handleFilterChange(f.id)}
                             whileTap={{ scale: 0.9 }}
                           >
-                            {f.thumb || '✨'}
+                            <span className={styles.snapFilterIcon}>{f.thumb || '✨'}</span>
+                            <span className={styles.snapFilterLabel}>{f.name}</span>
                           </motion.div>
                         ))}
                       </div>
