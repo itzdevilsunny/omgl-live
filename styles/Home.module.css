@@ -2227,13 +2227,13 @@
 
 /* Full-Screen AR Canvas Mode (Global for Web, Tablet, Mobile) */
 .videoSlotLocalFullscreen {
-  position: absolute !important;
+  position: fixed !important;
   inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
+  width: 100vw !important;
+  height: 100vh !important;
   border-radius: 0 !important;
   border: none !important;
-  z-index: 1500 !important;
+  z-index: 9999 !important;
   transform: none !important;
   margin: 0 !important;
 }
