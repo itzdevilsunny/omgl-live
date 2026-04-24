@@ -1658,7 +1658,7 @@ export default function StrangerLinkApp() {
           {shutterFlash && <div className={styles.shutterFlash} />}
 
           {/* ══ RIGHT PANEL: CHAT ════════════════════════════ */}
-          <div className={styles.rightPanel}>
+          <div className={`${styles.rightPanel} ${(status === 'idle' || status === 'searching') ? styles.hiddenOnMobile : ''}`}>
 
             {/* Chat header */}
             <div className={styles.chatHeader}>

@@ -1735,7 +1735,7 @@
 
   /* IDLE / LANDING SCREEN */
   .idleView {
-    padding: 28px 18px 36px;
+    padding: 140px 18px 36px;
     justify-content: flex-start;
     gap: 14px;
     background:
@@ -2257,6 +2257,9 @@
   .snapCaptureBtnInner {
     width: 48px !important;
     height: 48px !important;
+  }
+  .hiddenOnMobile {
+    display: none !important;
   }
 }
 
