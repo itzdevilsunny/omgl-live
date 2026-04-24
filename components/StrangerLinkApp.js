@@ -4,8 +4,6 @@ import Head from 'next/head';
 import Pusher from 'pusher-js';
 import styles from '../styles/Home.module.css';
 import AudioVisualizer from './AudioVisualizer';
-import { useBackgroundBlur } from './BackgroundBlur';
-import { useVideoFilters } from '../lib/useVideoFilters';
 
 /* ── Constants ─────────────────────────────────────────────── */
 const ICE_SERVERS = {
@@ -117,17 +115,27 @@ export default function StrangerLinkApp() {
   const reactionIdRef   = useRef(0);      // 🆕 unique ID for floating reactions
 
   /* ── BACKGROUND BLUR & VIDEO FILTERS ─────────────────────── */
-  const { startBlur, stopBlur, isBlurActive, isLoading: isBlurLoading, blurStreamRef } = useBackgroundBlur();
+  const startBlur = async () => null;
+  const stopBlur = () => {};
+  const isBlurActive = false;
+  const isBlurLoading = false;
+  const blurStreamRef = useRef(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const captureTimeoutRef = useRef(null);
   const [facingMode, setFacingMode] = useState('user');
   const [isFlashActive, setIsFlashActive] = useState(false);
 
-  const { 
-    startProcessing, stopProcessing, setFilter, capturePhoto, 
-    startRecording, stopRecording, activeFilter, isProcessing, 
-    isARLoading, isRecording, filters 
-  } = useVideoFilters();
+  const startProcessing = async () => null;
+  const stopProcessing = () => {};
+  const setFilter = () => {};
+  const capturePhoto = () => null;
+  const startRecording = () => {};
+  const stopRecording = () => {};
+  const activeFilter = 'none';
+  const isProcessing = false;
+  const isARLoading = false;
+  const isRecording = false;
+  const filters = [];
 
   const handleCaptureTap = useCallback(() => {
     const dataUrl = capturePhoto();
